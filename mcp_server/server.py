@@ -9,7 +9,8 @@ from mcp.server.fastmcp import FastMCP
 
 load_dotenv()
 
-mcp = FastMCP("Claim Denied MCP Server")
+port = int(os.getenv("MCP_SERVER_PORT", "8002"))
+mcp = FastMCP("Claim Denied MCP Server", host="0.0.0.0", port=port)
 
 
 @mcp.tool()
@@ -38,6 +39,4 @@ def get_claim_history(claim_id: str) -> dict:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("MCP_SERVER_PORT", "8002"))
-    mcp.run(transport="sse", port=port)
-
+    mcp.run(transport="sse")
