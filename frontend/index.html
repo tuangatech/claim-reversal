@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim Denied — Appeal Workflow</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; padding: 2rem; }
+        h1 { text-align: center; margin-bottom: 0.5rem; color: #fff; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
+        .input-section { display: flex; justify-content: center; gap: 0.5rem; margin-bottom: 2rem; }
+        input[type="text"] { padding: 0.6rem 1rem; border: 1px solid #333; border-radius: 6px; background: #16213e; color: #e0e0e0; font-size: 1rem; width: 260px; }
+        input[type="text"]::placeholder { color: #666; }
+        button { padding: 0.6rem 1.2rem; border: none; border-radius: 6px; background: #0f3460; color: #e0e0e0; font-size: 1rem; cursor: pointer; transition: background 0.2s; }
+        button:hover { background: #1a5276; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .timeline { max-width: 600px; margin: 0 auto; }
+        .step { display: flex; align-items: flex-start; gap: 1rem; padding: 0.8rem 1rem; border-left: 2px solid #333; margin-left: 1rem; position: relative; }
+        .step::before { content: ""; position: absolute; left: -7px; top: 1rem; width: 12px; height: 12px; border-radius: 50%; background: #333; }
+        .step.pending::before { background: #555; }
+        .step.active::before { background: #f39c12; animation: pulse 1.5s infinite; }
+        .step.done::before { background: #27ae60; }
+        .step.waiting::before { background: #e74c3c; }
+        .step-icon { font-size: 1.2rem; min-width: 1.5rem; text-align: center; }
+        .step-content { flex: 1; }
+        .step-title { font-weight: 600; font-size: 0.95rem; }
+        .step-message { font-size: 0.8rem; color: #888; margin-top: 0.2rem; }
+        .hitl-card { max-width: 600px; margin: 1.5rem auto; padding: 1.5rem; background: #16213e; border: 1px solid #e74c3c; border-radius: 8px; display: none; }
+        .hitl-card h3 { color: #e74c3c; margin-bottom: 0.5rem; }
+        .hitl-card p { font-size: 0.9rem; color: #aaa; margin-bottom: 1rem; }
+        .hitl-buttons { display: flex; gap: 0.75rem; }
+        .hitl-buttons button { flex: 1; }
+        .btn-proceed { background: #27ae60; }
+        .btn-proceed:hover { background: #2ecc71; }
+        .btn-close { background: #c0392b; }
+        .btn-close:hover { background: #e74c3c; }
+        .result { max-width: 600px; margin: 1.5rem auto; padding: 1.5rem; background: #16213e; border: 1px solid #27ae60; border-radius: 8px; display: none; }
+        .result h3 { color: #27ae60; margin-bottom: 0.5rem; }
+        .result pre { font-size: 0.8rem; color: #ccc; white-space: pre-wrap; overflow-x: auto; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body>
+    <h1>Claim Denied</h1>
+    <p class="subtitle">Clinical Denial Reversal Workflow</p>
+
+    <div class="input-section">
+        <input type="text" id="claim-id" placeholder="Enter Claim ID (e.g. CLM-2024-00123)">
+        <button id="submit-btn" onclick="startAppeal()">Submit</button>
+    </div>
+
+    <div class="timeline" id="timeline">
+        <div class="step pending" id="step-intake">
+            <span class="step-icon">⏳</span>
+            <div class="step-content">
+                <div class="step-title">Denial Intake</div>
+                <div class="step-message"></div>
+            </div>
+        </div>
+        <div class="step pending" id="step-evidence">
+            <span class="step-icon">⏳</span>
+            <div class="step-content">
+                <div class="step-title">Evidence Gathering</div>
+                <div class="step-message"></div>
+            </div>
+        </div>
+        <div class="step pending" id="step-letter">
+            <span class="step-icon">⏳</span>
+            <div class="step-content">
+                <div class="step-title">Appeal Drafting</div>
+                <div class="step-message"></div>
+            </div>
+        </div>
+        <div class="step pending" id="step-physician">
+            <span class="step-icon">⏳</span>
+            <div class="step-content">
+                <div class="step-title">Physician Sign-off</div>
+                <div class="step-message"></div>
+            </div>
+        </div>
+        <div class="step pending" id="step-submission">
+            <span class="step-icon">⏳</span>
+            <div class="step-content">
+                <div class="step-title">Submission</div>
+                <div class="step-message"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hitl-card" id="hitl-card">
+        <h3>⚠️ Human Decision Required</h3>
+        <p id="hitl-reasoning">Evidence gathering exhausted retries. Review the evidence and decide.</p>
+        <div class="hitl-buttons">
+            <button class="btn-proceed" onclick="resumeAppeal('proceed')">Proceed with Available Evidence</button>
+            <button class="btn-close" onclick="resumeAppeal('close')">Close Case</button>
+        </div>
+    </div>
+
+    <div class="result" id="result-card">
+        <h3>✅ Appeal Complete</h3>
+        <pre id="result-content"></pre>
+    </div>
+
+    <script>
+        const API_BASE = "http://localhost:8000";
+        let currentClaimId = null;
+        let eventSource = null;  // SSE connection — one per active workflow
+
+        // Kicks off the appeal workflow: POST to backend, then open SSE stream
+        function startAppeal() {
+            const claimId = document.getElementById("claim-id").value.trim();
+            if (!claimId) return;
+
+            currentClaimId = claimId;
+            resetTimeline();
+            document.getElementById("submit-btn").disabled = true;
+
+            // POST /appeal triggers the crew runner on the backend
+            fetch(`${API_BASE}/appeal`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ claim_id: claimId }),
+            })
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.json();
+            })
+            .then(() => {
+                // Backend accepted — now listen for real-time progress via SSE
+                connectSSE(claimId);
+            })
+            .catch(err => {
+                alert(`Error: ${err.message}`);
+                document.getElementById("submit-btn").disabled = false;
+            });
+        }
+
+        // Opens an EventSource connection to stream workflow progress events
+        function connectSSE(claimId) {
+            eventSource = new EventSource(`${API_BASE}/stream/${claimId}`);
+
+            // Named event "workflow_step" carries all progress updates
+            eventSource.addEventListener("workflow_step", (e) => {
+                const data = JSON.parse(e.data);
+                handleStep(data);
+            });
+
+            // Backend sends heartbeats every 30s to keep the connection alive
+            eventSource.addEventListener("heartbeat", () => {});
+
+            eventSource.onerror = () => {
+                eventSource.close();
+                document.getElementById("submit-btn").disabled = false;
+            };
+        }
+
+        // Routes each incoming SSE event to the correct timeline step and handles terminal states
+        function handleStep(data) {
+            // Maps WorkflowStep values to timeline DOM element IDs
+            const stepMap = {
+                "intake_complete": "step-intake",
+                "evidence_gathering": "step-evidence",
+                "evidence_gathered": "step-evidence",
+                "evidence_gathered_partial": "step-evidence",
+                "human_review_required": "step-evidence",
+                "letter_drafted": "step-letter",
+                "physician_reviewed": "step-physician",
+                "appeal_submitted": "step-submission",
+                "case_closed": null,  // Terminal — no timeline step, shows result card
+                "error": null,
+            };
+
+            const stepId = stepMap[data.step];
+
+            // HITL: pause timeline, show decision card for human input
+            if (data.step === "human_review_required") {
+                updateStep(stepId, "waiting", "⚠️", data.message);
+                showHITLCard(data.payload);
+                return;
+            }
+
+            // Terminal: case closed without appeal
+            if (data.step === "case_closed") {
+                document.getElementById("result-card").style.display = "block";
+                document.getElementById("result-card").querySelector("h3").textContent = "🚫 Case Closed";
+                document.getElementById("result-card").style.borderColor = "#e74c3c";
+                document.getElementById("result-content").textContent = data.message;
+                cleanup();
+                return;
+            }
+
+            // Terminal: appeal successfully submitted
+            if (data.step === "appeal_submitted") {
+                updateStep(stepId, "done", "✅", data.message);
+                document.getElementById("result-card").style.display = "block";
+                document.getElementById("result-content").textContent = data.message;
+                cleanup();
+                return;
+            }
+
+            // Terminal: unrecoverable error
+            if (data.step === "error") {
+                document.getElementById("result-card").style.display = "block";
+                document.getElementById("result-card").querySelector("h3").textContent = "❌ Error";
+                document.getElementById("result-card").style.borderColor = "#e74c3c";
+                document.getElementById("result-content").textContent = data.message;
+                cleanup();
+                return;
+            }
+
+            // Normal progress: mark the step as done
+            if (stepId) {
+                updateStep(stepId, "done", "✅", data.message);
+            }
+        }
+
+        // Updates a timeline step's visual state (pending/active/done/waiting)
+        function updateStep(stepId, state, icon, message) {
+            const el = document.getElementById(stepId);
+            el.className = `step ${state}`;
+            el.querySelector(".step-icon").textContent = icon;
+            if (message) el.querySelector(".step-message").textContent = message;
+        }
+
+        // Renders the HITL decision card with evidence reasoning from the backend
+        function showHITLCard(payload) {
+            const card = document.getElementById("hitl-card");
+            if (payload && payload.sufficiency_reasoning) {
+                document.getElementById("hitl-reasoning").textContent = payload.sufficiency_reasoning;
+            }
+            card.style.display = "block";
+        }
+
+        // Sends the human's HITL decision (proceed/close) back to the backend
+        function resumeAppeal(choice) {
+            document.getElementById("hitl-card").style.display = "none";
+            updateStep("step-evidence", "done", choice === "proceed" ? "⚠️" : "🚫", `Human chose: ${choice}`);
+
+            // POST /appeal/{id}/resume wakes the crew runner's asyncio.Event
+            fetch(`${API_BASE}/appeal/${currentClaimId}/resume`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ choice }),
+            });
+        }
+
+        // Resets all timeline steps to pending state for a new run
+        function resetTimeline() {
+            document.querySelectorAll(".step").forEach(el => {
+                el.className = "step pending";
+                el.querySelector(".step-icon").textContent = "⏳";
+                el.querySelector(".step-message").textContent = "";
+            });
+            document.getElementById("hitl-card").style.display = "none";
+            document.getElementById("result-card").style.display = "none";
+        }
+
+        // Closes the SSE connection and re-enables the submit button
+        function cleanup() {
+            if (eventSource) eventSource.close();
+            document.getElementById("submit-btn").disabled = false;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "records": [
+    {
+      "record_type": "admission_note",
+      "date": "2024-10-01",
+      "author": "Dr. Rebecca Torres, MD — Pulmonology",
+      "content": "67-year-old female presenting with 3-day history of productive cough, fever (39.2C), and progressive dyspnea. SpO2 88% on room air. CXR shows right lower lobe consolidation. WBC 18.2, CRP 142. CURB-65 score 3. Started on IV ceftriaxone and azithromycin. Supplemental O2 via nasal cannula at 4L/min. Patient requires inpatient admission for IV antibiotics, oxygen support, and close respiratory monitoring."
+    },
+    {
+      "record_type": "progress_note",
+      "date": "2024-10-02",
+      "author": "Dr. Rebecca Torres, MD",
+      "content": "Day 2: Fever persists at 38.6C. SpO2 improved to 92% on 3L O2. WBC trending down to 15.8. Continue current antibiotics. Patient still requiring supplemental oxygen — not appropriate for discharge."
+    },
+    {
+      "record_type": "progress_note",
+      "date": "2024-10-03",
+      "author": "Dr. Rebecca Torres, MD",
+      "content": "Day 3: Afebrile x 12 hours. SpO2 94% on 2L O2. Tolerating oral intake. Plan to transition to oral antibiotics if remains stable. WBC 12.1."
+    },
+    {
+      "record_type": "progress_note",
+      "date": "2024-10-04",
+      "author": "Dr. Rebecca Torres, MD",
+      "content": "Day 4: SpO2 96% on room air. Switched to oral levofloxacin. Ambulating independently. Discharge criteria met. Discharged with 7-day oral antibiotic course and PCP follow-up in 5 days."
+    },
+    {
+      "record_type": "discharge_summary",
+      "date": "2024-10-04",
+      "author": "Dr. Rebecca Torres, MD",
+      "content": "Discharge Diagnosis: Community-acquired pneumonia (J18.9). Hospital Course: 4-day admission for IV antibiotics and oxygen therapy. Patient presented with CURB-65 score of 3, hypoxia requiring supplemental O2, and elevated inflammatory markers. Responded to IV ceftriaxone/azithromycin. Transitioned to oral therapy on day 4 when oxygen requirement resolved. Disposition: Home with oral levofloxacin x 7 days."
+    },
+    {
+      "record_type": "lab_result",
+      "date": "2024-10-01",
+      "author": "Lab",
+      "content": "CBC: WBC 18.2 (H), Hgb 13.1, Plt 245. CMP: BUN 22, Cr 1.1, Na 136, K 3.9. CRP: 142 (H). Procalcitonin: 2.8 (H). Blood cultures: pending. Sputum culture: Streptococcus pneumoniae."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Secrets
+.env
+
+# Databases
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Generated/downloaded
+data/downloads/
+dist/
+
+# Claude
+.claude/
