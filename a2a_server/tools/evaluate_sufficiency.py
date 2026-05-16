@@ -27,7 +27,7 @@ def evaluate_evidence_sufficiency(
         for g in guideline_citations
     )
 
-    prompt = f"""You are a clinical reviewer evaluating whether gathered medical evidence is sufficient to support a medical necessity appeal.
+    prompt = f"""You are a strict clinical reviewer evaluating whether gathered medical evidence is sufficient to support a medical necessity appeal. You must evaluate indicator by indicator.
 
 DIAGNOSIS CODES: {', '.join(diagnosis_codes)}
 
@@ -37,19 +37,21 @@ CLINICAL RECORDS GATHERED:
 APPLICABLE GUIDELINES:
 {guidelines_text}
 
-Score the evidence sufficiency on a scale of 0-10:
-- 0-3: Clearly insufficient — missing critical documentation
-- 4-5: Borderline — some evidence but significant gaps
-- 6-7: Adequate — meets most criteria with reasonable documentation
-- 8-10: Strong — comprehensive evidence clearly meeting all criteria
+EVALUATION METHOD — follow exactly:
+1. List each medical necessity indicator from the guidelines above.
+2. For EACH indicator, determine if there is DIRECT documentation in the clinical records that explicitly addresses it. An indicator is "met" ONLY if a record directly states or documents the specific criterion. Clinical inference or implication does NOT count.
+3. Calculate the score: score = (number of indicators with direct documentation / total indicators) * 10
 
-Consider:
-1. Does the evidence address each medical necessity indicator from the guidelines?
-2. Are there gaps in documentation that would weaken the appeal?
-3. Is the clinical narrative consistent and compelling?
+SCORING RULES:
+- An imaging report alone does NOT satisfy "functional limitation documented" or "PT trial completed" or "failed conservative treatment" — those require their own dedicated records.
+- A single record type (e.g., only imaging) can typically satisfy at most 1-2 indicators.
+- If fewer than 70% of indicators have direct documentation, the score MUST be below 7.
+- A partially completed PT trial (e.g., 4 weeks when 3 months is required) does NOT satisfy the "failed conservative treatment >= 3 months" indicator.
+- "Patient states he completed PT" without duration/dates documentation does NOT count as meeting the PT trial indicator.
+- Be strict: payers deny appeals that lack explicit documentation for each criterion.
 
 Return ONLY valid JSON with exactly these keys:
-{{"score": <float 0-10>, "reasoning": "<brief explanation of score>"}}"""
+{{"score": <float 0-10>, "reasoning": "<list which indicators are met vs unmet>"}}"""
 
     response = client.chat.completions.create(
         model=model,
@@ -67,9 +69,9 @@ Return ONLY valid JSON with exactly these keys:
     score = float(result["score"])
     reasoning = result["reasoning"]
 
-    # Map score to sufficiency enum
+    # Map score to sufficiency enum — threshold 7 means > 70% of indicators must be met
     sufficiency = (
-        EvidenceSufficiency.SUFFICIENT if score >= 6
+        EvidenceSufficiency.SUFFICIENT if score >= 7
         else EvidenceSufficiency.INSUFFICIENT
     )
 
@@ -78,4 +80,5 @@ Return ONLY valid JSON with exactly these keys:
         "reasoning": reasoning,
         "score": score,
     }
+
 
