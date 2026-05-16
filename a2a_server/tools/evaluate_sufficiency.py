@@ -27,7 +27,14 @@ def evaluate_evidence_sufficiency(
         for g in guideline_citations
     )
 
-    prompt = f"""You are a strict clinical reviewer evaluating whether gathered medical evidence is sufficient to support a medical necessity appeal. You must evaluate indicator by indicator.
+    # Collect all indicator names from guidelines
+    all_indicators = []
+    for g in guideline_citations:
+        all_indicators.extend(g.medical_necessity_indicators)
+
+    indicators_list = "\n".join(f"  - \"{ind}\"" for ind in all_indicators)
+
+    prompt = f"""You are a strict clinical reviewer evaluating whether gathered medical evidence is sufficient to support a medical necessity appeal.
 
 DIAGNOSIS CODES: {', '.join(diagnosis_codes)}
 
@@ -37,21 +44,19 @@ CLINICAL RECORDS GATHERED:
 APPLICABLE GUIDELINES:
 {guidelines_text}
 
-EVALUATION METHOD — follow exactly:
-1. List each medical necessity indicator from the guidelines above.
-2. For EACH indicator, determine if there is DIRECT documentation in the clinical records that explicitly addresses it. An indicator is "met" ONLY if a record directly states or documents the specific criterion. Clinical inference or implication does NOT count.
-3. Calculate the score: score = (number of indicators with direct documentation / total indicators) * 10
+INDICATORS TO EVALUATE:
+{indicators_list}
 
-SCORING RULES:
-- An imaging report alone does NOT satisfy "functional limitation documented" or "PT trial completed" or "failed conservative treatment" — those require their own dedicated records.
-- A single record type (e.g., only imaging) can typically satisfy at most 1-2 indicators.
-- If fewer than 70% of indicators have direct documentation, the score MUST be below 7.
-- A partially completed PT trial (e.g., 4 weeks when 3 months is required) does NOT satisfy the "failed conservative treatment >= 3 months" indicator.
-- "Patient states he completed PT" without duration/dates documentation does NOT count as meeting the PT trial indicator.
-- Be strict: payers deny appeals that lack explicit documentation for each criterion.
+For EACH indicator listed above, determine if it is "met" or "unmet" based on the clinical records.
+
+RULES:
+- "met" = records contain EXPLICIT clinical data for it (vitals, lab values, scores, dates, treatment records).
+- "unmet" = no record provides specific data. Vague references or patient self-reports without corroborating records do NOT count.
+- Time-based criteria must be met exactly: "3 months of conservative treatment" requires documentation of 3+ months, not 4 weeks.
+- A patient's verbal statement (e.g., "patient states he did PT") does NOT satisfy an indicator unless corroborated by treatment records with dates and outcomes.
 
 Return ONLY valid JSON with exactly these keys:
-{{"score": <float 0-10>, "reasoning": "<list which indicators are met vs unmet>"}}"""
+{{"indicators": [{{"name": "<indicator>", "met": true/false, "evidence": "<brief cite or 'none'>"}}], "reasoning": "<one sentence summary>"}}"""
 
     response = client.chat.completions.create(
         model=model,
@@ -66,8 +71,13 @@ Return ONLY valid JSON with exactly these keys:
         response_text = response_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
     result = json.loads(response_text)
-    score = float(result["score"])
+    indicators = result["indicators"]
     reasoning = result["reasoning"]
+
+    # Compute score deterministically from indicator verdicts
+    met_count = sum(1 for ind in indicators if ind.get("met") is True)
+    total_count = len(indicators) if indicators else 1
+    score = (met_count / total_count) * 10
 
     # Map score to sufficiency enum — threshold 7 means > 70% of indicators must be met
     sufficiency = (
@@ -80,5 +90,3 @@ Return ONLY valid JSON with exactly these keys:
         "reasoning": reasoning,
         "score": score,
     }
-
-

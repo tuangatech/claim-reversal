@@ -15,8 +15,7 @@ GUIDELINES = {
             "hypoxia requiring supplemental O2",
             "CURB-65 >= 2",
             "IV antibiotic therapy",
-            "hemodynamic instability",
-            "failure of outpatient therapy",
+            "elevated inflammatory markers (WBC, CRP, procalcitonin)",
         ],
         "confidence": 0.92,
     },
@@ -55,4 +54,3 @@ def lookup_clinical_guideline(diagnosis_code: str) -> dict:
         "medical_necessity_indicators": [],
         "confidence": 0.0,
     }
-

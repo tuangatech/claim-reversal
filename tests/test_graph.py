@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from langgraph.types import Command
 
 from shared.db import init_db, seed_db
 
@@ -316,4 +317,3 @@ class TestGraphIntegration:
 
         assert result["closed_reason"] == "insufficient_evidence_human_closed"
         assert result.get("evidence_bundle") is None
-
