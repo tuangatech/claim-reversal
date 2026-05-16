@@ -9,10 +9,11 @@
   "denial_reason_code": "CO-50",
   "denial_reason_text": "Level of care not justified. Observation status would have been appropriate for this admission.",
   "diagnosis_codes": ["M17.11"],
-  "date_of_service": "2024-11-05",
-  "denial_date": "2024-11-20",
+  "date_of_service": "2026-04-15",
+  "denial_date": "2026-05-05",
   "claim_amount": 34200.00,
   "service_description": "Total knee arthroplasty — right knee, primary osteoarthritis",
   "appeal_instructions": "Submit appeal via BCBS provider portal within 90 days. Peer-to-peer review available upon request.",
   "facility": "Northwest Orthopedic Surgery Center"
 }
+
