@@ -1,6 +1,12 @@
 # mcp_server/server.py
 """MCP server entrypoint — registers shared tools and starts SSE transport."""
 
+import sys
+from pathlib import Path
+
+# Ensure project root is on sys.path when run as `python mcp_server/server.py`
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import json
 import os
 
@@ -53,4 +59,3 @@ def get_claim_history(claim_id: str) -> dict:
 
 if __name__ == "__main__":
     mcp.run(transport="sse")
-
