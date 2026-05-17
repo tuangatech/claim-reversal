@@ -28,7 +28,7 @@ load_dotenv()
 
 EVIDENCE_AGENT_PORT = os.environ.get("EVIDENCE_AGENT_PORT", "8001")
 HITL_TIMEOUT_SECONDS = int(os.environ.get("HITL_TIMEOUT_SECONDS", "300"))
-SUBSTEP_DELAY = 0.4
+SUBSTEP_DELAY = 1.0 
 
 
 class AppealCrew:

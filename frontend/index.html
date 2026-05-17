@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <title>Claim Reversal — Appeal Workflow</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -11,18 +12,20 @@
         .subtitle { text-align: center; color: #888; margin-bottom: 2rem; font-size: 0.85rem; }
 
         /* Claim list */
-        .claims-section { max-width: 800px; margin: 0 auto 2rem; }
+        .claims-section { max-width: 1000px; margin: 0 auto 2rem; }
         .claims-section h2 { font-size: 1rem; color: #aaa; margin-bottom: 0.75rem; font-weight: 500; }
         .claim-table { width: 100%; border-collapse: collapse; }
         .claim-table th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #333; }
-        .claim-table td { padding: 0.6rem 0.75rem; font-size: 0.85rem; border-bottom: 1px solid #252540; vertical-align: top; }
+        .claim-table td { padding: 0.6rem 0.75rem; font-size: 0.85rem; border-bottom: 1px solid #252540; vertical-align: middle; }
         .claim-table tr:hover { background: #16213e; }
-        .patient-name { font-weight: 600; color: #fff; }
-        .patient-detail { font-size: 0.75rem; color: #888; }
-        .amount { font-weight: 600; color: #f39c12; }
-        .denial-code { color: #e74c3c; font-weight: 500; font-size: 0.8rem; }
+        .patient-name { font-weight: 600; color: #fff; white-space: nowrap; }
+        .patient-detail { font-size: 0.75rem; color: #888; white-space: nowrap; }
+        .amount { font-weight: 600; color: #f39c12; white-space: nowrap; }
+        .denial-code { color: #e74c3c; font-weight: 500; font-size: 0.8rem; white-space: nowrap; }
         .denial-text { font-size: 0.75rem; color: #888; }
-        .btn-process { padding: 0.4rem 1rem; border: none; border-radius: 4px; background: #0f3460; color: #e0e0e0; font-size: 0.8rem; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+        .col-denial { min-width: 280px; }
+        .col-action { width: 90px; text-align: center; }
+        .btn-process { padding: 0.35rem 0.75rem; border: none; border-radius: 4px; background: #0f3460; color: #e0e0e0; font-size: 0.75rem; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
         .btn-process:hover { background: #1a5276; }
         .btn-process:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -48,11 +51,11 @@
         .substep.final { color: #27ae60; font-weight: 500; }
 
         /* HITL */
-        .hitl-card { max-width: 700px; margin: 1.5rem auto; padding: 1.5rem; background: #16213e; border: 1px solid #e74c3c; border-radius: 8px; display: none; }
-        .hitl-card h3 { color: #e74c3c; margin-bottom: 0.5rem; font-size: 0.95rem; }
-        .hitl-card p { font-size: 0.85rem; color: #aaa; margin-bottom: 1rem; line-height: 1.5; }
+        .hitl-card { margin: 0.75rem 0 0.5rem 2.5rem; padding: 1rem 1.25rem; background: #16213e; border: 1px solid #e74c3c; border-radius: 8px; display: none; }
+        .hitl-card h3 { color: #e74c3c; margin-bottom: 0.4rem; font-size: 0.9rem; }
+        .hitl-card p { font-size: 0.82rem; color: #aaa; margin-bottom: 0.75rem; line-height: 1.5; }
         .hitl-buttons { display: flex; gap: 0.75rem; }
-        .hitl-buttons button { flex: 1; padding: 0.5rem 1rem; border: none; border-radius: 4px; font-size: 0.85rem; cursor: pointer; }
+        .hitl-buttons button { flex: 1; padding: 0.5rem 1rem; border: none; border-radius: 4px; font-size: 0.82rem; cursor: pointer; }
         .btn-proceed { background: #27ae60; color: #fff; }
         .btn-proceed:hover { background: #2ecc71; }
         .btn-close { background: #c0392b; color: #fff; }
@@ -62,6 +65,9 @@
         .result { max-width: 700px; margin: 1.5rem auto; padding: 1.5rem; background: #16213e; border: 1px solid #27ae60; border-radius: 8px; display: none; }
         .result h3 { color: #27ae60; margin-bottom: 0.5rem; font-size: 0.95rem; }
         .result pre { font-size: 0.8rem; color: #ccc; white-space: pre-wrap; }
+        .btn-letter { margin-top: 1rem; padding: 0.5rem 1.2rem; border: 1px solid #27ae60; border-radius: 4px; background: transparent; color: #27ae60; font-size: 0.8rem; cursor: pointer; transition: background 0.2s; }
+        .btn-letter:hover { background: #27ae6020; }
+        .letter-content { margin-top: 1rem; padding: 1rem; background: #0d1b2a; border-radius: 6px; font-size: 0.8rem; color: #ccc; white-space: pre-wrap; line-height: 1.6; max-height: 400px; overflow-y: auto; }
 
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
@@ -80,8 +86,8 @@
                     <th>Service</th>
                     <th>Amount</th>
                     <th>Payer</th>
-                    <th>Denial</th>
-                    <th></th>
+                    <th class="col-denial">Denial</th>
+                    <th class="col-action"></th>
                 </tr>
             </thead>
             <tbody id="claims-body"></tbody>
@@ -109,6 +115,14 @@
                 <div class="step-title">Evidence Gathering</div>
             </div>
             <div class="substeps" id="substeps-evidence"></div>
+            <div class="hitl-card" id="hitl-card">
+                <h3>Human Decision Required</h3>
+                <p id="hitl-reasoning">Evidence gathering exhausted retries. Review the evidence and decide.</p>
+                <div class="hitl-buttons">
+                    <button class="btn-proceed" onclick="resumeAppeal('proceed')">Proceed with Available Evidence</button>
+                    <button class="btn-close" onclick="resumeAppeal('close')">Close Case</button>
+                </div>
+            </div>
             <div class="step-connector"></div>
         </div>
 
@@ -139,18 +153,11 @@
         </div>
     </div>
 
-    <div class="hitl-card" id="hitl-card">
-        <h3>Human Decision Required</h3>
-        <p id="hitl-reasoning">Evidence gathering exhausted retries. Review the evidence and decide.</p>
-        <div class="hitl-buttons">
-            <button class="btn-proceed" onclick="resumeAppeal('proceed')">Proceed with Available Evidence</button>
-            <button class="btn-close" onclick="resumeAppeal('close')">Close Case</button>
-        </div>
-    </div>
-
     <div class="result" id="result-card">
         <h3>Appeal Complete</h3>
         <pre id="result-content"></pre>
+        <button class="btn-letter" id="btn-letter" onclick="toggleLetter()" style="display:none;">View Appeal Letter</button>
+        <div class="letter-content" id="letter-content" style="display:none;"></div>
     </div>
 
     <script>
@@ -218,7 +225,7 @@
                 <tr>
                     <td>
                         <div class="patient-name">${c.patient_name}</div>
-                        <div class="patient-detail">${c.patient_sex} | DOB ${c.patient_dob} | ${c.facility}</div>
+                        <div class="patient-detail">${c.claim_id}</div>
                     </td>
                     <td>
                         <div>${c.diagnosis_codes.join(", ")}</div>
@@ -226,11 +233,11 @@
                     </td>
                     <td class="amount">$${c.claim_amount.toLocaleString()}</td>
                     <td>${c.payer_name}</td>
-                    <td>
+                    <td class="col-denial">
                         <div class="denial-code">${c.denial_reason_code}</div>
                         <div class="denial-text">${c.denial_reason_text}</div>
                     </td>
-                    <td><button class="btn-process" onclick="startAppeal('${c.claim_id}', '${c.patient_name}')">Process</button></td>
+                    <td class="col-action"><button class="btn-process" onclick="startAppeal('${c.claim_id}', '${c.patient_name}')">Process</button></td>
                 </tr>
             `).join("");
         }
@@ -309,7 +316,7 @@
             if (data.step === "appeal_submitted") {
                 setStepState("submission", "done");
                 addSubstep("submission", data.message, true);
-                showResult("Appeal Complete", `Appeal submitted. ${data.message}`, "#27ae60");
+                showResult("Appeal Complete", `Appeal submitted. ${data.message}`, "#27ae60", true);
                 cleanup();
                 return;
             }
@@ -358,7 +365,6 @@
 
         function resumeAppeal(choice) {
             document.getElementById("hitl-card").style.display = "none";
-            addSubstep("evidence", `Human chose: ${choice}`, choice === "proceed");
 
             fetch(`${API_BASE}/appeal/${currentClaimId}/resume`, {
                 method: "POST",
@@ -367,13 +373,35 @@
             });
         }
 
-        function showResult(title, message, borderColor) {
+        function showResult(title, message, borderColor, showLetterBtn = false) {
             const card = document.getElementById("result-card");
             card.querySelector("h3").textContent = title;
             card.style.borderColor = borderColor;
             card.querySelector("h3").style.color = borderColor;
             document.getElementById("result-content").textContent = message;
+            document.getElementById("btn-letter").style.display = showLetterBtn ? "inline-block" : "none";
+            document.getElementById("letter-content").style.display = "none";
             card.style.display = "block";
+        }
+
+        async function toggleLetter() {
+            const el = document.getElementById("letter-content");
+            if (el.style.display === "block") {
+                el.style.display = "none";
+                document.getElementById("btn-letter").textContent = "View Appeal Letter";
+                return;
+            }
+            el.textContent = "Loading...";
+            el.style.display = "block";
+            try {
+                const res = await fetch(`${API_BASE}/appeal/${currentClaimId}/letter`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                el.textContent = data.letter_text;
+                document.getElementById("btn-letter").textContent = "Hide Appeal Letter";
+            } catch (err) {
+                el.textContent = `Error loading letter: ${err.message}`;
+            }
         }
 
         function resetTimeline() {

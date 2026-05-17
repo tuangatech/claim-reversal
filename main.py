@@ -160,9 +160,24 @@ async def resume_appeal(claim_id: str, request: ResumeRequest):
     return {"claim_id": claim_id, "choice": request.choice, "status": "resumed"}
 
 
+@app.get("/appeal/{claim_id}/letter")
+async def get_letter(claim_id: str):
+    """Returns the appeal letter text for a completed claim."""
+    conn = get_connection()
+    row = conn.execute("SELECT appeal_letter FROM appeals WHERE id = ?", (claim_id,)).fetchone()
+    conn.close()
+
+    if not row or not row["appeal_letter"]:
+        raise HTTPException(status_code=404, detail="No appeal letter found for this claim")
+
+    letter_data = json.loads(row["appeal_letter"])
+    return {"claim_id": claim_id, "letter_text": letter_data.get("letter_text", "")}
+
+
 @app.get("/health")
 async def health():
     """Health check."""
     return {"status": "ok", "service": "main-app"}
+
 
 
