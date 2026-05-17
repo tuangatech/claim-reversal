@@ -12,6 +12,7 @@ def draft_appeal_letter(
     denial_record: DenialRecord,
     evidence_bundle: EvidenceBundle,
     payer_rules: dict,
+    validation_feedback: list[str] | None = None,
 ) -> AppealLetter:
     """Drafts a formal medical appeal letter using LLM composition."""
 
@@ -37,6 +38,15 @@ def draft_appeal_letter(
         else ""
     )
 
+    feedback_note = ""
+    if validation_feedback:
+        formatted_issues = "\n".join(f"- {issue}" for issue in validation_feedback)
+        feedback_note = (
+            f"\n\nIMPORTANT — PREVIOUS DRAFT FAILED VALIDATION. Fix these issues:\n"
+            f"{formatted_issues}\n\n"
+            "Do NOT hallucinate evidence. Only cite records and guidelines that appear in the evidence bundle above."
+        )
+
     prompt = f"""Write a formal medical appeal letter for a clinical denial reversal.
 
 DENIAL DETAILS:
@@ -60,7 +70,7 @@ PAYER REQUIRED SECTIONS (include all of these):
 
 SUBMISSION FORMAT: {payer_rules.get('submission_format', 'mail')}
 PAYER ADDRESS: {payer_rules.get('contact_address', 'Appeals Department')}
-
+{feedback_note}
 Write a professional, persuasive appeal letter that:
 1. References the specific denial and claim
 2. Presents the clinical evidence supporting medical necessity
@@ -88,4 +98,5 @@ Write ONLY the letter text. No commentary or explanation outside the letter."""
         required_attachments=[r.record_type for r in evidence_bundle.patient_records],
         drafted_at=datetime.now(timezone.utc).isoformat(),
     )
+
 

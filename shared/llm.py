@@ -20,9 +20,17 @@ def get_agent_llm() -> tuple[OpenAI, str]:
     return client, model
 
 
+def get_guardrail_llm() -> tuple[OpenAI, str]:
+    """Returns an OpenAI client pointed at OpenRouter and the guardrail model string."""
+
+    api_key = os.environ["OPENROUTER_API_KEY"]
+    model = os.environ.get("OPENROUTER_GUARDRAIL_MODEL", "openai/gpt-5.4-nano")
+    client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
+    return client, model
+
+
 def get_crewai_llm_string() -> str:
     """Returns the LiteLLM-formatted model string for CrewAI agent definitions."""
 
     model = os.environ.get("OPENROUTER_AGENT_MODEL", "openai/gpt-5-mini")
     return f"openrouter/{model}"
-
