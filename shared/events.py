@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 class WorkflowStep(StrEnum):
     """Valid workflow step values emitted over the SSE stream."""
 
+    # Guardrail (before intake)
+    INPUT_VALIDATING = "input_validating"
+    INPUT_VALIDATED = "input_validated"
+    INPUT_REJECTED = "input_rejected"
+
     # Intake substeps
     INTAKE_PARSING = "intake_parsing"
     INTAKE_CLASSIFYING = "intake_classifying"
@@ -37,6 +42,8 @@ class WorkflowStep(StrEnum):
     DRAFTING_PAYER_RULES = "drafting_payer_rules"
     DRAFTING_RULES_LOADED = "drafting_rules_loaded"
     DRAFTING_COMPOSING = "drafting_composing"
+    LETTER_VALIDATING = "letter_validating"
+    LETTER_VALIDATED = "letter_validated"
     LETTER_DRAFTED = "letter_drafted"
 
     # Physician substeps
@@ -65,5 +72,3 @@ class WorkflowEvent(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     payload: dict = Field(default_factory=dict)
-
-

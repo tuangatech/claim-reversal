@@ -100,6 +100,15 @@
             <span class="workflow-claim-id" id="workflow-claim-id"></span>
         </div>
 
+        <div class="step pending" id="step-guardrail" data-step="guardrail">
+            <div class="step-header">
+                <div class="step-dot"></div>
+                <div class="step-title">Input Validation</div>
+            </div>
+            <div class="substeps" id="substeps-guardrail"></div>
+            <div class="step-connector"></div>
+        </div>
+
         <div class="step pending" id="step-intake" data-step="intake">
             <div class="step-header">
                 <div class="step-dot"></div>
@@ -168,6 +177,9 @@
 
         // Step event routing: maps SSE step names to their parent timeline step and container
         const STEP_MAP = {
+            input_validating: "guardrail",
+            input_validated: "guardrail",
+            input_rejected: "guardrail",
             intake_parsing: "intake",
             intake_classifying: "intake",
             intake_deadline: "intake",
@@ -189,6 +201,8 @@
             drafting_payer_rules: "letter",
             drafting_rules_loaded: "letter",
             drafting_composing: "letter",
+            letter_validating: "letter",
+            letter_validated: "letter",
             letter_drafted: "letter",
             physician_checking: "physician",
             physician_routing: "physician",
@@ -200,6 +214,7 @@
 
         // Which events mark a step as complete (transition from active → done)
         const STEP_COMPLETE_EVENTS = {
+            guardrail: "input_validated",
             intake: "intake_complete",
             evidence: "evidence_gathered",
             letter: "letter_drafted",
@@ -289,6 +304,15 @@
 
         function handleStep(data) {
             const parentStep = STEP_MAP[data.step];
+
+            // Terminal: input rejected
+            if (data.step === "input_rejected") {
+                setStepState("guardrail", "waiting");
+                addSubstep("guardrail", data.message);
+                showResult("Input Rejected", data.message, "#e74c3c");
+                cleanup();
+                return;
+            }
 
             // HITL: pause and show decision card
             if (data.step === "human_review_required") {
@@ -425,4 +449,5 @@
     </script>
 </body>
 </html>
+
 

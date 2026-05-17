@@ -10,12 +10,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os
 from uuid import uuid4
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from langgraph.types import Command
 
 from a2a_server.graph import graph
 from shared.db import init_db, seed_db
+from shared.logging import configure_logging
+
+configure_logging("evidence-agent")
+logger = structlog.get_logger()
 
 app = FastAPI(title="Clinical Evidence A2A Agent")
 
@@ -81,6 +86,8 @@ async def a2a_task(request: Request):
     is_resume = task_id and "human_choice" in data
 
     if is_resume:
+        structlog.contextvars.bind_contextvars(claim_id=data.get("claim_id", ""), task_id=task_id)
+        logger.info("a2a_resume_received", choice=data["human_choice"])
         # Resume a suspended graph
         config = {"configurable": {"thread_id": task_id}}
 
@@ -122,6 +129,8 @@ async def a2a_task(request: Request):
 
     # Generate task_id and invoke graph
     task_id = str(uuid4())
+    structlog.contextvars.bind_contextvars(claim_id=data["claim_id"], task_id=task_id)
+    logger.info("a2a_task_received")
     initial_state = {
         "claim_id": data["claim_id"],
         "diagnosis_codes": data["diagnosis_codes"],
@@ -146,11 +155,13 @@ async def a2a_task(request: Request):
 
     # Determine if graph completed or suspended at interrupt
     if result.get("evidence_bundle") is not None or result.get("closed_reason") is not None:
+        logger.info("graph_completed", sufficiency=result.get("sufficiency"), retry_count=result.get("retry_count", 0))
         return _build_completed_response(task_id, result)
 
     # Graph suspended — check via get_state for confirmation
     state_snapshot = graph.get_state(config)
     if state_snapshot.next:
+        logger.info("graph_suspended", retry_count=result.get("retry_count", 0))
         # Suspended at interrupt — return input-required
         return JSONResponse(content={
             "id": task_id,
@@ -197,4 +208,3 @@ def _build_completed_response(task_id: str, result: dict) -> JSONResponse:
 async def health():
     """Health check."""
     return {"status": "ok", "service": "evidence-agent"}
-

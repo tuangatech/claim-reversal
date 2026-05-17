@@ -94,3 +94,21 @@ class SubmissionConfirmation(BaseModel):
     submission_method: str
     payer_id: str
 
+
+class InputGuardrailResult(BaseModel):
+    """Result of input sanitization scan."""
+
+    passed: bool
+    checks_run: list[str]
+    flagged_segments: list[str]
+    confidence: float
+    reasoning: str
+
+
+class LetterValidationResult(BaseModel):
+    """Result of appeal letter validation."""
+
+    valid: bool
+    score: float
+    issues: list[str]
+    reasoning: str

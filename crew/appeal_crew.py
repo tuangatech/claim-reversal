@@ -6,6 +6,7 @@ import json
 import os
 
 import httpx
+import structlog
 from dotenv import load_dotenv
 
 from mcp_server.tools.audit_log import log_appeal_event
@@ -20,15 +21,19 @@ from shared.models import (
     SubmissionConfirmation,
 )
 from tools.draft_letter import draft_appeal_letter
+from tools.input_guardrail import scan_denial_record
 from tools.physician_review import physician_review
 from tools.submit_appeal import submit_appeal
 from tools.triage_denial import triage_denial
+from tools.validate_letter import validate_appeal_letter
 
 load_dotenv()
 
 EVIDENCE_AGENT_PORT = os.environ.get("EVIDENCE_AGENT_PORT", "8001")
 HITL_TIMEOUT_SECONDS = int(os.environ.get("HITL_TIMEOUT_SECONDS", "300"))
-SUBSTEP_DELAY = 1.0 
+SUBSTEP_DELAY = 1.0
+
+logger = structlog.get_logger()
 
 
 class AppealCrew:
@@ -51,22 +56,34 @@ class AppealCrew:
         self.appeal_letter: AppealLetter | None = None
 
     async def run(self) -> None:
-        """Runs the full pipeline: Intake → Evidence → Writer → Physician → Submission."""
+        """Runs the full pipeline: Guardrail → Intake → Evidence → Writer → Physician → Submission."""
+        structlog.contextvars.bind_contextvars(claim_id=self.claim_id)
+        logger.info("pipeline_started")
         try:
+            # Step 0: Input guardrail
+            guardrail_passed = await self._run_guardrail()
+            if not guardrail_passed:
+                logger.warning("pipeline_rejected", reason="input_guardrail_failed")
+                return
+
             self.denial_record = await self._run_intake()
             if self.denial_record is None:
                 await self._emit(WorkflowStep.CASE_CLOSED, "warning", "Claim not eligible for appeal.")
+                logger.info("pipeline_closed", reason="not_eligible")
                 return
 
             self.evidence_bundle = await self._run_evidence()
             if self.evidence_bundle is None:
                 # CASE_CLOSED already emitted by _run_evidence or timeout handler
+                logger.info("pipeline_closed", reason="evidence_closed")
                 return
 
             self.appeal_letter = await self._run_writer()
             await self._run_physician()
             await self._run_submission()
+            logger.info("pipeline_completed")
         except Exception as exc:
+            logger.error("pipeline_failed", error=str(exc))
             await self._emit(WorkflowStep.ERROR, "error", f"Pipeline failed: {exc}")
         finally:
             await self.http_client.aclose()
@@ -77,6 +94,44 @@ class AppealCrew:
         self.hitl_event.set()
 
     # --- Private pipeline steps ---
+
+    async def _run_guardrail(self) -> bool:
+        """Scans the denial record for prompt injection before starting the pipeline."""
+        conn = get_connection()
+        row = conn.execute("SELECT denial_record FROM appeals WHERE id = ?", (self.claim_id,)).fetchone()
+        conn.close()
+
+        denial_record_json = row["denial_record"]
+
+        await self._emit(WorkflowStep.INPUT_VALIDATING, "success", "Scanning denial record for prompt injection...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        result = await asyncio.to_thread(scan_denial_record, denial_record_json)
+        logger.info("guardrail_completed", passed=result.passed, checks_run=result.checks_run, confidence=result.confidence)
+
+        if result.passed:
+            await self._emit(
+                WorkflowStep.INPUT_VALIDATED, "success",
+                f"Denial record verified — no prompt injection detected",
+                payload={"checks_run": result.checks_run, "confidence": result.confidence},
+            )
+            return True
+
+        await self._emit(
+            WorkflowStep.INPUT_REJECTED, "error",
+            f"Prompt injection detected in denial record — workflow rejected",
+            payload={"flagged_segments": result.flagged_segments, "reasoning": result.reasoning},
+        )
+
+        # Update DB status
+        conn = get_connection()
+        conn.execute(
+            "UPDATE appeals SET status='rejected', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (self.claim_id,),
+        )
+        conn.commit()
+        conn.close()
+        return False
 
     async def _run_intake(self) -> DenialRecord | None:
         """Triages the denial and returns a DenialRecord if the claim should proceed."""
@@ -156,6 +211,7 @@ class AppealCrew:
         conn.close()
 
         recommendation = triage_result["recommendation"]
+        logger.info("step_completed", step="intake", recommendation=recommendation, worthiness_score=score)
         await self._emit(
             WorkflowStep.INTAKE_COMPLETE,
             "success",
@@ -190,11 +246,13 @@ class AppealCrew:
             response = await self.http_client.post("/a2a", json=payload)
             response.raise_for_status()
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            logger.error("a2a_call_failed", error=str(exc))
             await self._emit(WorkflowStep.ERROR, "error", f"Evidence agent unavailable: {exc}")
             return None
 
         result = response.json()
         status_state = result["status"]["state"]
+        logger.info("a2a_response_received", status=status_state)
 
         if status_state == "completed":
             return await self._handle_evidence_completed(result)
@@ -322,10 +380,45 @@ class AppealCrew:
 
         letter = await asyncio.to_thread(draft_appeal_letter, self.denial_record, self.evidence_bundle, payer_rules)
 
+        # Validate the letter against evidence
+        await self._emit(WorkflowStep.LETTER_VALIDATING, "success", "Validating letter against evidence...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        validation = await asyncio.to_thread(
+            validate_appeal_letter, letter, self.denial_record, self.evidence_bundle, payer_rules
+        )
+
+        if not validation.valid:
+            issues_text = "; ".join(validation.issues[:3]) if validation.issues else "quality below threshold"
+            await self._emit(
+                WorkflowStep.LETTER_VALIDATING, "warning",
+                f"Validation failed (score: {validation.score:.0%}) — redrafting. Issues: {issues_text}",
+            )
+            # One retry with feedback
+            letter = await asyncio.to_thread(
+                draft_appeal_letter, self.denial_record, self.evidence_bundle, payer_rules,
+                validation_feedback=validation.issues,
+            )
+            validation = await asyncio.to_thread(
+                validate_appeal_letter, letter, self.denial_record, self.evidence_bundle, payer_rules
+            )
+
+        issue_count = len(validation.issues)
+        logger.info("step_completed", step="writer", validation_score=validation.score, issues=issue_count)
+        await self._emit(
+            WorkflowStep.LETTER_VALIDATED, "success",
+            f"Letter validated (score: {validation.score:.0%}). {issue_count} issue(s).",
+        )
+
         log_appeal_event(
             claim_id=self.claim_id,
             event_type="letter_drafted",
-            payload={"payer_id": self.denial_record.payer_id, "partial_evidence": self.evidence_bundle.partial},
+            payload={
+                "payer_id": self.denial_record.payer_id,
+                "partial_evidence": self.evidence_bundle.partial,
+                "validation_score": validation.score,
+                "validation_issues": validation.issues,
+            },
             agent_name="appeal_writer_agent",
         )
 
@@ -433,5 +526,3 @@ class AppealCrew:
             payload=payload or {},
         )
         await self.event_queue.put(event)
-
-

@@ -6,6 +6,7 @@ import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -14,6 +15,10 @@ from pydantic import BaseModel
 from crew.appeal_crew import AppealCrew
 from shared.db import get_connection, init_db, seed_db
 from shared.events import WorkflowEvent, WorkflowStep
+from shared.logging import configure_logging
+
+configure_logging("main-app")
+logger = structlog.get_logger()
 
 
 event_queues: dict[str, asyncio.Queue] = {}
@@ -116,6 +121,7 @@ async def start_appeal(request: AppealRequest):
 
     # Spawn the pipeline as a background task
     asyncio.create_task(_run_and_cleanup(request.claim_id, crew))
+    logger.info("appeal_started", claim_id=request.claim_id)
     return {"claim_id": request.claim_id, "status": "started"}
 
 
@@ -157,6 +163,7 @@ async def resume_appeal(claim_id: str, request: ResumeRequest):
     if request.choice not in ("proceed", "close"):
         raise HTTPException(status_code=400, detail="Choice must be 'proceed' or 'close'")
     crew.resume(request.choice)
+    logger.info("hitl_resumed", claim_id=claim_id, choice=request.choice)
     return {"claim_id": claim_id, "choice": request.choice, "status": "resumed"}
 
 
@@ -178,6 +185,4 @@ async def get_letter(claim_id: str):
 async def health():
     """Health check."""
     return {"status": "ok", "service": "main-app"}
-
-
 
