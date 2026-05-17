@@ -1,4 +1,4 @@
-# Claim Denied — CLAUDE.md
+# Claim Reversal — CLAUDE.md
 
 Multi-agent clinical denial reversal system. Learning project for CrewAI + LangGraph + A2A + MCP + SSE patterns.
 
