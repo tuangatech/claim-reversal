@@ -11,11 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from crew.appeal_crew import AppealCrew
 from shared.db import get_connection, init_db, seed_db
 from shared.events import WorkflowEvent, WorkflowStep
 
 
 event_queues: dict[str, asyncio.Queue] = {}
+active_crews: dict[str, AppealCrew] = {}
 
 
 @asynccontextmanager
@@ -26,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Claim Denied", lifespan=lifespan)
+app = FastAPI(title="Claim Reversal", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,25 +56,12 @@ async def emit_event(claim_id: str, event: WorkflowEvent) -> None:
     await event_queues[claim_id].put(event)
 
 
-async def run_crew(claim_id: str) -> None:
-    """Stub crew runner — emits fake workflow events to simulate the pipeline."""
-    steps = [
-        (WorkflowStep.INTAKE_COMPLETE, "success", "Denial triaged. Clinical denial confirmed, appeal recommended."),
-        (WorkflowStep.EVIDENCE_GATHERING, "success", "Gathering clinical evidence from patient records..."),
-        (WorkflowStep.EVIDENCE_GATHERED, "success", "Clinical evidence bundle assembled. Records and guidelines collected."),
-        (WorkflowStep.LETTER_DRAFTED, "success", "Appeal letter drafted with clinical evidence and guideline citations."),
-        (WorkflowStep.PHYSICIAN_REVIEWED, "success", "Physician review complete. Appeal approved for submission."),
-        (WorkflowStep.APPEAL_SUBMITTED, "success", "Appeal submitted to payer. Confirmation number generated."),
-    ]
-    for step, status, message in steps:
-        await asyncio.sleep(1)
-        event = WorkflowEvent(
-            claim_id=claim_id,
-            step=step,
-            status=status,
-            message=message,
-        )
-        await emit_event(claim_id, event)
+async def _run_and_cleanup(claim_id: str, crew: AppealCrew) -> None:
+    """Runs the crew and removes it from active_crews when done."""
+    try:
+        await crew.run()
+    finally:
+        active_crews.pop(claim_id, None)
 
 
 @app.post("/appeal")
@@ -80,12 +69,26 @@ async def start_appeal(request: AppealRequest):
     """Kick off the appeal workflow for a claim."""
     conn = get_connection()
     row = conn.execute("SELECT id FROM appeals WHERE id = ?", (request.claim_id,)).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         raise HTTPException(status_code=404, detail=f"Claim {request.claim_id} not found")
 
+    # Reset claim state for re-run (testing/demo — same claim can be submitted multiple times)
+    conn.execute(
+        "UPDATE appeals SET status='pending', evidence_bundle=NULL, appeal_letter=NULL, submission=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (request.claim_id,),
+    )
+    conn.execute("DELETE FROM appeal_events WHERE claim_id=?", (request.claim_id,))
+    conn.commit()
+    conn.close()
+
+    # Create SSE queue and crew
     event_queues[request.claim_id] = asyncio.Queue()
-    asyncio.create_task(run_crew(request.claim_id))
+    crew = AppealCrew(request.claim_id, event_queues[request.claim_id])
+    active_crews[request.claim_id] = crew
+
+    # Spawn the pipeline as a background task
+    asyncio.create_task(_run_and_cleanup(request.claim_id, crew))
     return {"claim_id": request.claim_id, "status": "started"}
 
 
@@ -121,7 +124,13 @@ async def stream_events(claim_id: str):
 @app.post("/appeal/{claim_id}/resume")
 async def resume_appeal(claim_id: str, request: ResumeRequest):
     """HITL resume endpoint — accepts human decision to proceed or close."""
-    return {"status": "not_implemented_yet", "claim_id": claim_id, "choice": request.choice}
+    crew = active_crews.get(claim_id)
+    if not crew:
+        raise HTTPException(status_code=404, detail="No active workflow for this claim")
+    if request.choice not in ("proceed", "close"):
+        raise HTTPException(status_code=400, detail="Choice must be 'proceed' or 'close'")
+    crew.resume(request.choice)
+    return {"claim_id": claim_id, "choice": request.choice, "status": "resumed"}
 
 
 @app.get("/health")

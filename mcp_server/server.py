@@ -18,7 +18,7 @@ from shared.db import init_db, seed_db
 load_dotenv()
 
 port = int(os.getenv("MCP_SERVER_PORT", "8002"))
-mcp = FastMCP("Claim Denied MCP Server", host="0.0.0.0", port=port)
+mcp = FastMCP("Claim Reversal MCP Server", host="0.0.0.0", port=port)
 
 # Ensure DB is ready before tools try to access it
 init_db()
@@ -59,3 +59,4 @@ def get_claim_history(claim_id: str) -> dict:
 
 if __name__ == "__main__":
     mcp.run(transport="sse")
+

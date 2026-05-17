@@ -70,7 +70,7 @@ class TestNodeUnits:
     def test_fetch_records_node(self):
         from a2a_server.graph import fetch_records
 
-        state = _make_initial_state("CLM-2024-00123", ["J18.9"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
         result = fetch_records(state)
 
         assert "patient_records" in result
@@ -80,7 +80,7 @@ class TestNodeUnits:
     def test_fetch_records_supplemental(self):
         from a2a_server.graph import fetch_records
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["include_supplemental"] = True
         result = fetch_records(state)
 
@@ -89,7 +89,7 @@ class TestNodeUnits:
     def test_lookup_guideline_node(self):
         from a2a_server.graph import lookup_guideline
 
-        state = _make_initial_state("CLM-2024-00123", ["J18.9"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
         result = lookup_guideline(state)
 
         assert "guideline_citations" in result
@@ -99,7 +99,7 @@ class TestNodeUnits:
     def test_lookup_guideline_multiple_codes(self):
         from a2a_server.graph import lookup_guideline
 
-        state = _make_initial_state("CLM-2024-00123", ["J18.9", "M17.11"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9", "M17.11"], "HUMANA")
         result = lookup_guideline(state)
 
         assert len(result["guideline_citations"]) == 2
@@ -107,7 +107,7 @@ class TestNodeUnits:
     def test_increment_retry_node(self):
         from a2a_server.graph import increment_retry
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["retry_count"] = 0
         result = increment_retry(state)
 
@@ -117,7 +117,7 @@ class TestNodeUnits:
     def test_increment_retry_second(self):
         from a2a_server.graph import increment_retry
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["retry_count"] = 1
         result = increment_retry(state)
 
@@ -126,7 +126,7 @@ class TestNodeUnits:
     def test_build_bundle_node(self):
         from a2a_server.graph import build_bundle
 
-        state = _make_initial_state("CLM-2024-00123", ["J18.9"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
         state["patient_records"] = [
             {"record_type": "admission_note", "content": "test", "date": "2026-05-01", "author": "Dr. Test"}
         ]
@@ -139,12 +139,12 @@ class TestNodeUnits:
 
         assert result["evidence_bundle"] is not None
         assert result["evidence_bundle"]["partial"] is False
-        assert result["evidence_bundle"]["claim_id"] == "CLM-2024-00123"
+        assert result["evidence_bundle"]["claim_id"] == "CLM-2026-00123"
 
     def test_build_bundle_partial_node(self):
         from a2a_server.graph import build_bundle_partial
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["patient_records"] = [
             {"record_type": "imaging_report", "content": "MRI knee", "date": "2026-04-10", "author": "Dr. Park"}
         ]
@@ -160,7 +160,7 @@ class TestNodeUnits:
     def test_close_case_node(self):
         from a2a_server.graph import close_case
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         result = close_case(state)
 
         assert result["closed_reason"] == "insufficient_evidence_human_closed"
@@ -170,7 +170,7 @@ class TestNodeUnits:
         import os
         os.environ["USE_PLAYWRIGHT"] = "false"
 
-        state = _make_initial_state("CLM-2024-00123", ["J18.9"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
         result = fetch_lcd(state)
 
         assert result["lcd_policy_text"] == ""
@@ -183,7 +183,7 @@ class TestRouting:
         from a2a_server.graph import route_after_evaluation
         from a2a_server.state import EvidenceSufficiency
 
-        state = _make_initial_state("CLM-2024-00123", ["J18.9"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
         state["sufficiency"] = EvidenceSufficiency.SUFFICIENT
         state["retry_count"] = 0
 
@@ -193,7 +193,7 @@ class TestRouting:
         from a2a_server.graph import route_after_evaluation
         from a2a_server.state import EvidenceSufficiency
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["sufficiency"] = EvidenceSufficiency.INSUFFICIENT
         state["retry_count"] = 0
 
@@ -203,7 +203,7 @@ class TestRouting:
         from a2a_server.graph import route_after_evaluation
         from a2a_server.state import EvidenceSufficiency
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["sufficiency"] = EvidenceSufficiency.INSUFFICIENT
         state["retry_count"] = 2
 
@@ -213,7 +213,7 @@ class TestRouting:
         from a2a_server.graph import route_after_hitl
         from a2a_server.state import HumanChoice
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["human_choice"] = HumanChoice.PROCEED
 
         assert route_after_hitl(state) == "build_bundle_partial"
@@ -222,7 +222,7 @@ class TestRouting:
         from a2a_server.graph import route_after_hitl
         from a2a_server.state import HumanChoice
 
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         state["human_choice"] = HumanChoice.CLOSE
 
         assert route_after_hitl(state) == "close_case"
@@ -233,11 +233,11 @@ class TestRouting:
 @pytest.mark.llm
 class TestGraphIntegration:
     def test_sufficient_first_try(self):
-        """CLM-2024-00123 (pneumonia) should be sufficient on first evaluation."""
+        """CLM-2026-00123 (pneumonia) should be sufficient on first evaluation."""
         from a2a_server.graph import graph
 
         config = {"configurable": {"thread_id": f"test-sufficient-{uuid4().hex[:8]}"}}
-        state = _make_initial_state("CLM-2024-00123", ["J18.9"], "HUMANA")
+        state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
         result = graph.invoke(state, config=config)
 
         assert result["evidence_bundle"] is not None
@@ -246,22 +246,22 @@ class TestGraphIntegration:
         assert result["hitl_triggered"] is False
 
     def test_insufficient_triggers_retry(self):
-        """CLM-2024-00199 (knee) should trigger at least one retry."""
+        """CLM-2026-00199 (knee) should trigger at least one retry."""
         from a2a_server.graph import graph
 
         config = {"configurable": {"thread_id": f"test-retry-{uuid4().hex[:8]}"}}
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         result = graph.invoke(state, config=config)
 
         # Graph either completed with retries or suspended at HITL
         assert result["retry_count"] >= 1
 
     def test_hitl_suspend(self):
-        """CLM-2024-00199 should suspend after 2 retries."""
+        """CLM-2026-00199 should suspend after 2 retries."""
         from a2a_server.graph import graph
 
         config = {"configurable": {"thread_id": f"test-hitl-{uuid4().hex[:8]}"}}
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
         result = graph.invoke(state, config=config)
 
         # Verify suspension
@@ -276,7 +276,7 @@ class TestGraphIntegration:
 
         thread_id = f"test-proceed-{uuid4().hex[:8]}"
         config = {"configurable": {"thread_id": thread_id}}
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
 
         # Invoke to suspension
         graph.invoke(state, config=config)
@@ -300,7 +300,7 @@ class TestGraphIntegration:
 
         thread_id = f"test-close-{uuid4().hex[:8]}"
         config = {"configurable": {"thread_id": thread_id}}
-        state = _make_initial_state("CLM-2024-00199", ["M17.11"], "BCBS")
+        state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
 
         # Invoke to suspension
         graph.invoke(state, config=config)
@@ -317,3 +317,4 @@ class TestGraphIntegration:
 
         assert result["closed_reason"] == "insufficient_evidence_human_closed"
         assert result.get("evidence_bundle") is None
+

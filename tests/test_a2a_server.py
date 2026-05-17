@@ -79,7 +79,7 @@ class TestA2AEndpoints:
     async def test_invalid_payload_missing_fields(self, client):
         resp = await client.post("/a2a", json={
             "messages": [{"role": "user", "parts": [{"type": "data", "data": {
-                "claim_id": "CLM-2024-00123",
+                "claim_id": "CLM-2026-00123",
                 # Missing diagnosis_codes, payer_id, denial_reason_code
             }}]}]
         })
@@ -102,10 +102,10 @@ class TestA2AEndpoints:
 class TestA2AIntegration:
     @pytest.mark.asyncio
     async def test_task_send_sufficient(self, client):
-        """CLM-2024-00123 should complete with evidence bundle."""
+        """CLM-2026-00123 should complete with evidence bundle."""
         resp = await client.post("/a2a", json={
             "messages": [{"role": "user", "parts": [{"type": "data", "data": {
-                "claim_id": "CLM-2024-00123",
+                "claim_id": "CLM-2026-00123",
                 "diagnosis_codes": ["J18.9"],
                 "payer_id": "HUMANA",
                 "denial_reason_code": "CO-50",
@@ -120,11 +120,11 @@ class TestA2AIntegration:
 
     @pytest.mark.asyncio
     async def test_task_send_hitl_and_resume_proceed(self, client):
-        """CLM-2024-00199 should suspend, then resume with proceed."""
+        """CLM-2026-00199 should suspend, then resume with proceed."""
         # Initial request — should suspend
         resp = await client.post("/a2a", json={
             "messages": [{"role": "user", "parts": [{"type": "data", "data": {
-                "claim_id": "CLM-2024-00199",
+                "claim_id": "CLM-2026-00199",
                 "diagnosis_codes": ["M17.11"],
                 "payer_id": "BCBS",
                 "denial_reason_code": "CO-50",
@@ -155,11 +155,11 @@ class TestA2AIntegration:
 
     @pytest.mark.asyncio
     async def test_task_send_hitl_close(self, client):
-        """CLM-2024-00199 should suspend, then close on human decision."""
+        """CLM-2026-00199 should suspend, then close on human decision."""
         # Initial request — should suspend
         resp = await client.post("/a2a", json={
             "messages": [{"role": "user", "parts": [{"type": "data", "data": {
-                "claim_id": "CLM-2024-00199",
+                "claim_id": "CLM-2026-00199",
                 "diagnosis_codes": ["M17.11"],
                 "payer_id": "BCBS",
                 "denial_reason_code": "CO-50",
@@ -181,4 +181,5 @@ class TestA2AIntegration:
         data2 = resp2.json()
         assert data2["status"]["state"] == "completed"
         assert data2["messages"][0]["parts"][0]["data"]["closed_reason"] == "insufficient_evidence_human_closed"
+
 
