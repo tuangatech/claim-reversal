@@ -1,0 +1,20 @@
+{
+  "claim_id": "CLM-2026-00123",
+  "patient_name": "Maria Santos",
+  "patient_id": "PAT-67234",
+  "patient_dob": "1959-03-14",
+  "patient_sex": "F",
+  "payer_id": "HUMANA",
+  "payer_name": "Humana Medicare Advantage",
+  "denial_reason_code": "CO-50",
+  "denial_reason_text": "These are non-covered services because this is not deemed a medical necessity by the payer.",
+  "diagnosis_codes": ["J18.9"],
+  "date_of_service": "2026-05-01",
+  "denial_date": "2026-05-10",
+  "claim_amount": 12400.00,
+  "service_description": "Inpatient admission — community-acquired pneumonia, 4-day stay",
+  "appeal_instructions": "Submit written appeal within 60 days to Humana Appeals Department. Include clinical documentation supporting medical necessity.",
+  "facility": "St. Mary's Regional Medical Center"
+}
+
+

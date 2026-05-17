@@ -1,0 +1,27 @@
+{
+  "records": [
+    {
+      "record_type": "imaging_report",
+      "date": "2026-04-10",
+      "author": "Dr. Alan Park, MD — Radiology",
+      "content": "MRI Right Knee: Severe tricompartmental osteoarthritis with complete cartilage loss in the medial compartment. Grade IV chondromalacia of medial femoral condyle and tibial plateau. Moderate subchondral edema. Medial meniscus: complex degenerative tear, posterior horn. ACL intact. No loose bodies. Impression: Bone-on-bone arthritis medial compartment, consistent with end-stage OA."
+    }
+  ],
+  "supplemental_records": [
+    {
+      "record_type": "progress_note",
+      "date": "2026-04-22",
+      "author": "Dr. Michael Reeves, MD — Orthopedic Surgery",
+      "content": "54M referred for right knee pain, worsening over 18 months. Reports difficulty with stairs, prolonged walking >10 min. Kellgren-Lawrence Grade IV on imaging. Patient states he completed physical therapy earlier this year with minimal improvement. Recommending total knee arthroplasty right knee. Discussed risks, benefits, alternatives. Patient elects to proceed. Submitted prior auth to BCBS."
+    },
+    {
+      "record_type": "progress_note",
+      "date": "2026-03-10",
+      "author": "Summit Physical Therapy",
+      "content": "Discharge Summary: Patient attended 8/12 scheduled sessions over 4 weeks for right knee OA. Exercises included quad strengthening, hamstring stretches, stationary bike. Patient reports 20% improvement in pain at rest but continued difficulty with weight-bearing activities. Discharged per patient request due to work schedule conflicts after only 4 weeks (NOTE: payer guidelines require minimum 3 months conservative treatment). No documentation of NSAID trial or corticosteroid injections in chart. Home exercise program provided."
+    }
+  ]
+}
+
+
+

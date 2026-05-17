@@ -1,0 +1,20 @@
+{
+  "claim_id": "CLM-2026-00199",
+  "patient_name": "James Chen",
+  "patient_id": "PAT-54891",
+  "patient_dob": "1972-08-22",
+  "patient_sex": "M",
+  "payer_id": "BCBS",
+  "payer_name": "Blue Cross Blue Shield of Illinois",
+  "denial_reason_code": "CO-50",
+  "denial_reason_text": "Level of care not justified. Observation status would have been appropriate for this admission.",
+  "diagnosis_codes": ["M17.11"],
+  "date_of_service": "2026-04-15",
+  "denial_date": "2026-05-05",
+  "claim_amount": 34200.00,
+  "service_description": "Total knee arthroplasty — right knee, primary osteoarthritis",
+  "appeal_instructions": "Submit appeal via BCBS provider portal within 90 days. Peer-to-peer review available upon request.",
+  "facility": "Northwest Orthopedic Surgery Center"
+}
+
+
