@@ -64,6 +64,33 @@ async def _run_and_cleanup(claim_id: str, crew: AppealCrew) -> None:
         active_crews.pop(claim_id, None)
 
 
+@app.get("/claims")
+async def list_claims():
+    """Returns all denied claims available for processing."""
+    conn = get_connection()
+    rows = conn.execute("SELECT id, denial_record FROM appeals").fetchall()
+    conn.close()
+
+    claims = []
+    for row in rows:
+        eob = json.loads(row["denial_record"])
+        claims.append({
+            "claim_id": row["id"],
+            "patient_name": eob.get("patient_name", ""),
+            "patient_dob": eob.get("patient_dob", ""),
+            "patient_sex": eob.get("patient_sex", ""),
+            "diagnosis_codes": eob.get("diagnosis_codes", []),
+            "service_description": eob.get("service_description", ""),
+            "claim_amount": eob.get("claim_amount", 0),
+            "date_of_service": eob.get("date_of_service", ""),
+            "payer_name": eob.get("payer_name", ""),
+            "denial_reason_code": eob.get("denial_reason_code", ""),
+            "denial_reason_text": eob.get("denial_reason_text", ""),
+            "facility": eob.get("facility", ""),
+        })
+    return {"claims": claims}
+
+
 @app.post("/appeal")
 async def start_appeal(request: AppealRequest):
     """Kick off the appeal workflow for a claim."""
@@ -137,4 +164,5 @@ async def resume_appeal(claim_id: str, request: ResumeRequest):
 async def health():
     """Health check."""
     return {"status": "ok", "service": "main-app"}
+
 

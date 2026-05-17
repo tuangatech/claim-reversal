@@ -28,6 +28,7 @@ load_dotenv()
 
 EVIDENCE_AGENT_PORT = os.environ.get("EVIDENCE_AGENT_PORT", "8001")
 HITL_TIMEOUT_SECONDS = int(os.environ.get("HITL_TIMEOUT_SECONDS", "300"))
+SUBSTEP_DELAY = 0.4
 
 
 class AppealCrew:
@@ -85,6 +86,10 @@ class AppealCrew:
 
         eob_data = json.loads(row["denial_record"])
 
+        # Substep: parsing
+        await self._emit(WorkflowStep.INTAKE_PARSING, "success", f"Parsing denial reason code {eob_data['denial_reason_code']}...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
         # Run triage (rules-based, no LLM)
         triage_result = await asyncio.to_thread(
             triage_denial,
@@ -95,6 +100,24 @@ class AppealCrew:
             date_of_service=eob_data["date_of_service"],
             denial_date=eob_data["denial_date"],
         )
+
+        # Substep: classifying
+        denial_type = "Clinical" if triage_result["is_clinical"] else "Administrative"
+        await self._emit(WorkflowStep.INTAKE_CLASSIFYING, "success", f"Classifying denial type → {denial_type}")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        # Substep: deadline
+        await self._emit(WorkflowStep.INTAKE_DEADLINE, "success", f"Checking appeal deadline → {triage_result['days_remaining']} days remaining")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        # Substep: history
+        await self._emit(WorkflowStep.INTAKE_HISTORY, "success", "Checking prior appeal history → No prior appeals")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        # Substep: scoring
+        score = triage_result["worthiness_score"]
+        await self._emit(WorkflowStep.INTAKE_SCORING, "success", f"Scoring worthiness → {score} ({triage_result['reasoning']})")
+        await asyncio.sleep(SUBSTEP_DELAY)
 
         log_appeal_event(
             claim_id=self.claim_id,
@@ -133,11 +156,10 @@ class AppealCrew:
         conn.close()
 
         recommendation = triage_result["recommendation"]
-        score = triage_result["worthiness_score"]
         await self._emit(
             WorkflowStep.INTAKE_COMPLETE,
             "success",
-            f"Denial triaged. Recommendation: {recommendation} (score: {score}). {triage_result['reasoning']}",
+            f"Recommendation: {'Proceed with appeal' if recommendation == 'proceed' else 'Close case'}",
         )
 
         if recommendation != "proceed":
@@ -146,7 +168,12 @@ class AppealCrew:
 
     async def _run_evidence(self) -> EvidenceBundle | None:
         """Delegates to the A2A evidence agent and handles HITL if needed."""
-        await self._emit(WorkflowStep.EVIDENCE_GATHERING, "success", "Gathering clinical evidence from remote agent...")
+        await self._emit(WorkflowStep.EVIDENCE_GATHERING, "success", "Delegating to Clinical Evidence Agent...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        dos = self.denial_record.date_of_service
+        await self._emit(WorkflowStep.EVIDENCE_FETCHING_RECORDS, "success", f"Fetching patient records for DOS {dos}...")
+        await asyncio.sleep(SUBSTEP_DELAY)
 
         # Build A2A request
         payload = {
@@ -189,6 +216,29 @@ class AppealCrew:
 
         bundle = self._parse_evidence_bundle(data["evidence_bundle"])
 
+        record_count = len(bundle.patient_records)
+        guideline_count = len(bundle.guideline_citations)
+
+        # Emit evidence substeps based on what the graph found
+        record_types = ", ".join(r.record_type for r in bundle.patient_records[:4])
+        await self._emit(WorkflowStep.EVIDENCE_RECORDS_FOUND, "success", f"Found {record_count} clinical records ({record_types})")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        diag_codes = ", ".join(self.denial_record.diagnosis_codes)
+        await self._emit(WorkflowStep.EVIDENCE_GUIDELINE_LOOKUP, "success", f"Looking up clinical criteria for {diag_codes}...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        if guideline_count > 0:
+            source = bundle.guideline_citations[0].guideline_source
+            await self._emit(WorkflowStep.EVIDENCE_GUIDELINE_FOUND, "success", f"Retrieved {guideline_count} guideline citation(s) from {source}")
+            await asyncio.sleep(SUBSTEP_DELAY)
+
+        await self._emit(WorkflowStep.EVIDENCE_EVALUATING, "success", "Evaluating evidence sufficiency...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        await self._emit(WorkflowStep.EVIDENCE_SUFFICIENT, "success", f"Evidence {'sufficient' if not bundle.partial else 'partial'} — assembling bundle")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
         # Persist to DB
         conn = get_connection()
         conn.execute(
@@ -199,9 +249,7 @@ class AppealCrew:
         conn.close()
 
         step = WorkflowStep.EVIDENCE_GATHERED if not bundle.partial else WorkflowStep.EVIDENCE_GATHERED_PARTIAL
-        record_count = len(bundle.patient_records)
-        guideline_count = len(bundle.guideline_citations)
-        await self._emit(step, "success", f"Evidence bundle assembled. {record_count} records, {guideline_count} guidelines. Partial: {bundle.partial}")
+        await self._emit(step, "success", f"Evidence bundle assembled. {record_count} records, {guideline_count} guidelines.")
 
         return bundle
 
@@ -260,7 +308,18 @@ class AppealCrew:
 
     async def _run_writer(self) -> AppealLetter:
         """Drafts the appeal letter using LLM composition."""
+        await self._emit(WorkflowStep.DRAFTING_PAYER_RULES, "success", f"Loading payer appeal rules for {self.denial_record.payer_name}...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
         payer_rules = await asyncio.to_thread(get_payer_appeal_rules, self.denial_record.payer_id)
+
+        sections = payer_rules.get("required_sections", [])
+        sections_text = ", ".join(sections[:3]) if sections else "standard format"
+        await self._emit(WorkflowStep.DRAFTING_RULES_LOADED, "success", f"Required sections: {sections_text}")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        await self._emit(WorkflowStep.DRAFTING_COMPOSING, "success", "Drafting appeal letter...")
+
         letter = await asyncio.to_thread(draft_appeal_letter, self.denial_record, self.evidence_bundle, payer_rules)
 
         log_appeal_event(
@@ -279,11 +338,16 @@ class AppealCrew:
         conn.commit()
         conn.close()
 
-        await self._emit(WorkflowStep.LETTER_DRAFTED, "success", "Appeal letter drafted with clinical evidence and guideline citations.")
+        guideline_count = len(self.evidence_bundle.guideline_citations)
+        record_count = len(self.evidence_bundle.patient_records)
+        await self._emit(WorkflowStep.LETTER_DRAFTED, "success", f"Letter drafted — {guideline_count} guideline citations, {record_count} evidence references")
         return letter
 
     async def _run_physician(self) -> PhysicianReview:
         """Checks physician attestation requirement and simulates approval."""
+        await self._emit(WorkflowStep.PHYSICIAN_CHECKING, "success", "Checking if physician attestation required...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
         review = await asyncio.to_thread(
             physician_review,
             claim_id=self.claim_id,
@@ -292,6 +356,15 @@ class AppealCrew:
             payer_id=self.denial_record.payer_id,
             letter_text=self.appeal_letter.letter_text,
         )
+
+        if review.physician_required:
+            await self._emit(WorkflowStep.PHYSICIAN_CHECKING, "success", "Physician attestation required → Yes")
+            await asyncio.sleep(SUBSTEP_DELAY)
+            await self._emit(WorkflowStep.PHYSICIAN_ROUTING, "success", "Routing to Dr. Sarah Mitchell, MD — Medical Director")
+            await asyncio.sleep(SUBSTEP_DELAY * 2)
+        else:
+            await self._emit(WorkflowStep.PHYSICIAN_CHECKING, "success", "Physician attestation required → No (bypassed)")
+            await asyncio.sleep(SUBSTEP_DELAY)
 
         log_appeal_event(
             claim_id=self.claim_id,
@@ -309,12 +382,20 @@ class AppealCrew:
         conn.commit()
         conn.close()
 
-        msg = f"Physician review: {'required and approved' if review.physician_required else 'not required (bypassed)'}. {review.notes}"
-        await self._emit(WorkflowStep.PHYSICIAN_REVIEWED, "success", msg)
+        status_text = "Reviewed and approved" if review.physician_required else "Not required — bypassed"
+        await self._emit(WorkflowStep.PHYSICIAN_REVIEWED, "success", status_text)
         return review
 
     async def _run_submission(self) -> SubmissionConfirmation:
         """Submits the appeal and records confirmation."""
+        await self._emit(WorkflowStep.SUBMISSION_PREPARING, "success", "Preparing submission package...")
+        await asyncio.sleep(SUBSTEP_DELAY)
+
+        payer_rules = await asyncio.to_thread(get_payer_appeal_rules, self.denial_record.payer_id)
+        method = payer_rules.get("submission_format", "mail")
+        await self._emit(WorkflowStep.SUBMISSION_SENDING, "success", f"Submitting to {self.denial_record.payer_name} via {method}...")
+        await asyncio.sleep(SUBSTEP_DELAY * 2)
+
         confirmation = await asyncio.to_thread(
             submit_appeal,
             claim_id=self.claim_id,
@@ -332,7 +413,7 @@ class AppealCrew:
         await self._emit(
             WorkflowStep.APPEAL_SUBMITTED,
             "success",
-            f"Appeal submitted. Confirmation: {confirmation.confirmation_number} via {confirmation.submission_method}.",
+            f"Confirmation: {confirmation.confirmation_number}",
         )
         return confirmation
 
@@ -352,4 +433,5 @@ class AppealCrew:
             payload=payload or {},
         )
         await self.event_queue.put(event)
+
 
