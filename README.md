@@ -30,14 +30,13 @@ uv sync
 # Configure
 cp .env.example .env  # Add your OPENROUTER_API_KEY
 
-# Run (3 terminals)
-python mcp_server/server.py                      # Terminal 1
-uvicorn a2a_server.app:app --port 8001 --reload  # Terminal 2
-uvicorn main:app --port 8000 --reload            # Terminal 3
+# Run (4 terminals)
+python mcp_server/server.py             # Terminal 1
+uvicorn a2a_server.app:app --port 8001  # Terminal 2
+uvicorn main:app --port 8000            # Terminal 3
 
-# Open frontend
-# http://localhost:5500 (python -m http.server 5500 in frontend/)
-# or open frontend/index.html directly
+# Open frontend (Terminal 4)
+cd frontend && python -m http.server 5500       # Open http://localhost:5500
 ```
 
 ## Test Claims
@@ -85,12 +84,12 @@ pytest tests/ -v
 
 ```
 OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_AGENT_MODEL=openai/gpt-5-mini
+OPENROUTER_AGENT_MODEL=openai/gpt-5.4-mini
+OPENROUTER_GUARDRAIL_MODEL=openai/gpt-5.4-nano
 MAIN_APP_PORT=8000
 EVIDENCE_AGENT_PORT=8001
 MCP_SERVER_PORT=8002
 HITL_TIMEOUT_SECONDS=300
-USE_PLAYWRIGHT=false
 ```
 
 ## Documentation
