@@ -26,6 +26,7 @@ def reset_db(monkeypatch):
 
     monkeypatch.setattr("shared.db.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
     monkeypatch.setattr("crew.appeal_crew.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
+    monkeypatch.setattr("mcp_server.tools.audit_log.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
     monkeypatch.setattr("tools.triage_denial.get_claim_history", lambda claim_id: {"claim_id": claim_id, "prior_appeals": [], "prior_denials": [], "last_payment": None})
     monkeypatch.setattr("tools.submit_appeal.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
     monkeypatch.setattr("tools.submit_appeal.get_payer_appeal_rules", lambda payer_id: {"submission_format": "portal"})
@@ -235,18 +236,16 @@ async def test_crew_hitl_close(reset_db):
 @pytest.mark.asyncio
 async def test_crew_hitl_timeout(monkeypatch, reset_db):
     """HITL timeout auto-closes the case."""
+    import crew.appeal_crew as appeal_crew_module
+
     monkeypatch.setattr("crew.appeal_crew.HITL_TIMEOUT_SECONDS", 2)
 
     from crew.appeal_crew import AppealCrew
 
     queue = asyncio.Queue()
-    crew = AppealCrew("CLM-2026-00199", queue)
-    # Override timeout on the instance level too
-    import crew.appeal_crew
-    original = crew.appeal_crew.HITL_TIMEOUT_SECONDS
-    crew.appeal_crew.HITL_TIMEOUT_SECONDS = 2
+    crew_instance = AppealCrew("CLM-2026-00199", queue)
 
-    await crew.run()
+    await crew_instance.run()
 
     # Collect events
     events = []
@@ -257,6 +256,4 @@ async def test_crew_hitl_timeout(monkeypatch, reset_db):
     assert WorkflowStep.CASE_CLOSED in steps
     # Should NOT have proceeded to writer
     assert WorkflowStep.LETTER_DRAFTED not in steps
-
-    crew.appeal_crew.HITL_TIMEOUT_SECONDS = original
-
+    
