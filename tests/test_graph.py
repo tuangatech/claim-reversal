@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from langgraph.types import Command
 
+from mcp_server.tools.lookup_guideline import lookup_clinical_guideline as _local_lookup
 from shared.db import init_db, seed_db
 
 TEST_DB_PATH = "data/claims_test.db"
@@ -20,9 +21,19 @@ def _make_test_connection(db_path: str = TEST_DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+class _MockMcpClient:
+    """Fake MCP client that returns data from local lookup functions."""
+
+    async def lookup_clinical_guideline(self, diagnosis_code: str) -> dict:
+        return _local_lookup(diagnosis_code)
+
+    async def log_appeal_event(self, **kwargs) -> dict:
+        return {"event_id": "test", "timestamp": "2026-01-01T00:00:00Z"}
+
+
 @pytest.fixture(autouse=True)
 def reset_db(monkeypatch):
-    """Resets the test database before each test."""
+    """Resets the test database and mocks MCP client before each test."""
     db_file = Path(TEST_DB_PATH)
     if db_file.exists():
         db_file.unlink()
@@ -32,6 +43,14 @@ def reset_db(monkeypatch):
     monkeypatch.setattr("mcp_server.tools.audit_log.get_connection", _make_test_connection)
     monkeypatch.setattr("mcp_server.tools.claim_history.get_connection", _make_test_connection)
     monkeypatch.setattr("tools.submit_appeal.get_connection", _make_test_connection)
+
+    # Mock the MCP client so graph nodes don't need a live MCP server
+    mock_mcp = _MockMcpClient()
+
+    async def _get_mock_mcp():
+        return mock_mcp
+
+    monkeypatch.setattr("a2a_server.graph._get_mcp_client", _get_mock_mcp)
 
     init_db(TEST_DB_PATH)
     seed_db(TEST_DB_PATH)
@@ -86,21 +105,23 @@ class TestNodeUnits:
 
         assert len(result["patient_records"]) == 3
 
-    def test_lookup_guideline_node(self):
+    @pytest.mark.asyncio
+    async def test_lookup_guideline_node(self):
         from a2a_server.graph import lookup_guideline
 
         state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
-        result = lookup_guideline(state)
+        result = await lookup_guideline(state)
 
         assert "guideline_citations" in result
         assert len(result["guideline_citations"]) == 1
         assert "InterQual" in result["guideline_citations"][0]["guideline_source"]
 
-    def test_lookup_guideline_multiple_codes(self):
+    @pytest.mark.asyncio
+    async def test_lookup_guideline_multiple_codes(self):
         from a2a_server.graph import lookup_guideline
 
         state = _make_initial_state("CLM-2026-00123", ["J18.9", "M17.11"], "HUMANA")
-        result = lookup_guideline(state)
+        result = await lookup_guideline(state)
 
         assert len(result["guideline_citations"]) == 2
 
@@ -232,37 +253,40 @@ class TestRouting:
 
 @pytest.mark.llm
 class TestGraphIntegration:
-    def test_sufficient_first_try(self):
+    @pytest.mark.asyncio
+    async def test_sufficient_first_try(self):
         """CLM-2026-00123 (pneumonia) should be sufficient on first evaluation."""
         from a2a_server.graph import graph
 
         config = {"configurable": {"thread_id": f"test-sufficient-{uuid4().hex[:8]}"}}
         state = _make_initial_state("CLM-2026-00123", ["J18.9"], "HUMANA")
-        result = graph.invoke(state, config=config)
+        result = await graph.ainvoke(state, config=config)
 
         assert result["evidence_bundle"] is not None
         assert result["evidence_bundle"]["partial"] is False
         assert result["retry_count"] == 0
         assert result["hitl_triggered"] is False
 
-    def test_insufficient_triggers_retry(self):
+    @pytest.mark.asyncio
+    async def test_insufficient_triggers_retry(self):
         """CLM-2026-00199 (knee) should trigger at least one retry."""
         from a2a_server.graph import graph
 
         config = {"configurable": {"thread_id": f"test-retry-{uuid4().hex[:8]}"}}
         state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
-        result = graph.invoke(state, config=config)
+        result = await graph.ainvoke(state, config=config)
 
         # Graph either completed with retries or suspended at HITL
         assert result["retry_count"] >= 1
 
-    def test_hitl_suspend(self):
+    @pytest.mark.asyncio
+    async def test_hitl_suspend(self):
         """CLM-2026-00199 should suspend after 2 retries."""
         from a2a_server.graph import graph
 
         config = {"configurable": {"thread_id": f"test-hitl-{uuid4().hex[:8]}"}}
         state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
-        result = graph.invoke(state, config=config)
+        result = await graph.ainvoke(state, config=config)
 
         # Verify suspension
         state_snapshot = graph.get_state(config)
@@ -270,7 +294,8 @@ class TestGraphIntegration:
         assert result.get("evidence_bundle") is None
         assert result["retry_count"] >= 2
 
-    def test_hitl_resume_proceed(self):
+    @pytest.mark.asyncio
+    async def test_hitl_resume_proceed(self):
         """Invoke fresh, suspend, then resume with proceed — self-contained."""
         from a2a_server.graph import graph
 
@@ -279,14 +304,14 @@ class TestGraphIntegration:
         state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
 
         # Invoke to suspension
-        graph.invoke(state, config=config)
+        await graph.ainvoke(state, config=config)
 
         # Verify suspended
         state_snapshot = graph.get_state(config)
         assert state_snapshot.next
 
         # Resume with proceed
-        result = graph.invoke(
+        result = await graph.ainvoke(
             Command(resume={"choice": "proceed"}),
             config=config,
         )
@@ -294,7 +319,8 @@ class TestGraphIntegration:
         assert result["evidence_bundle"] is not None
         assert result["evidence_bundle"]["partial"] is True
 
-    def test_hitl_resume_close(self):
+    @pytest.mark.asyncio
+    async def test_hitl_resume_close(self):
         """Invoke fresh, suspend, then resume with close — self-contained."""
         from a2a_server.graph import graph
 
@@ -303,18 +329,19 @@ class TestGraphIntegration:
         state = _make_initial_state("CLM-2026-00199", ["M17.11"], "BCBS")
 
         # Invoke to suspension
-        graph.invoke(state, config=config)
+        await graph.ainvoke(state, config=config)
 
         # Verify suspended
         state_snapshot = graph.get_state(config)
         assert state_snapshot.next
 
         # Resume with close
-        result = graph.invoke(
+        result = await graph.ainvoke(
             Command(resume={"choice": "close"}),
             config=config,
         )
 
         assert result["closed_reason"] == "insufficient_evidence_human_closed"
         assert result.get("evidence_bundle") is None
+
 

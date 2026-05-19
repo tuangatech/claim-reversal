@@ -6,7 +6,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+import pytest_asyncio
 
+from mcp_server.tools.lookup_guideline import lookup_clinical_guideline as _local_lookup
 from shared.db import init_db, seed_db
 
 TEST_DB_PATH = "data/claims_test.db"
@@ -19,9 +21,19 @@ def _make_test_connection(db_path: str = TEST_DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+class _MockMcpClient:
+    """Fake MCP client for A2A server tests."""
+
+    async def lookup_clinical_guideline(self, diagnosis_code: str) -> dict:
+        return _local_lookup(diagnosis_code)
+
+    async def log_appeal_event(self, **kwargs) -> dict:
+        return {"event_id": "test", "timestamp": "2026-01-01T00:00:00Z"}
+
+
 @pytest.fixture(autouse=True)
 def reset_db(monkeypatch):
-    """Resets the test database before each test."""
+    """Resets the test database and mocks MCP client before each test."""
     db_file = Path(TEST_DB_PATH)
     if db_file.exists():
         db_file.unlink()
@@ -32,6 +44,14 @@ def reset_db(monkeypatch):
     monkeypatch.setattr("mcp_server.tools.claim_history.get_connection", _make_test_connection)
     monkeypatch.setattr("tools.submit_appeal.get_connection", _make_test_connection)
 
+    # Mock the MCP client so graph nodes don't need a live MCP server
+    mock_mcp = _MockMcpClient()
+
+    async def _get_mock_mcp():
+        return mock_mcp
+
+    monkeypatch.setattr("a2a_server.graph._get_mcp_client", _get_mock_mcp)
+
     init_db(TEST_DB_PATH)
     seed_db(TEST_DB_PATH)
 
@@ -41,12 +61,13 @@ def reset_db(monkeypatch):
         db_file.unlink()
 
 
-@pytest.fixture
-def client():
+@pytest_asyncio.fixture
+async def client():
     """Creates an httpx async client for the A2A server."""
     from a2a_server.app import app
     transport = httpx.ASGITransport(app=app)
-    return httpx.AsyncClient(transport=transport, base_url="http://test")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
 
 
 # --- Non-LLM tests ---
@@ -181,5 +202,6 @@ class TestA2AIntegration:
         data2 = resp2.json()
         assert data2["status"]["state"] == "completed"
         assert data2["messages"][0]["parts"][0]["data"]["closed_reason"] == "insufficient_evidence_human_closed"
+
 
 

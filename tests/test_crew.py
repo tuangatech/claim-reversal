@@ -6,15 +6,41 @@ import json
 import os
 import sqlite3
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
 
+from mcp_server.tools.claim_history import get_claim_history as _local_get_claim_history
+from mcp_server.tools.lookup_guideline import lookup_clinical_guideline as _local_lookup_guideline
+from mcp_server.tools.payer_rules import get_payer_appeal_rules as _local_get_payer_rules
 from shared.db import get_connection, init_db, seed_db
 from shared.events import WorkflowStep
+from shared.models import InputGuardrailResult
 
 TEST_DB_PATH = "data/test_crew.db"
+
+
+class _MockMcpClient:
+    """Fake MCP client that delegates to local tool implementations."""
+
+    async def connect(self, **kwargs):
+        pass
+
+    async def disconnect(self):
+        pass
+
+    async def lookup_clinical_guideline(self, diagnosis_code: str) -> dict:
+        return _local_lookup_guideline(diagnosis_code)
+
+    async def get_payer_appeal_rules(self, payer_id: str) -> dict:
+        return _local_get_payer_rules(payer_id)
+
+    async def log_appeal_event(self, claim_id: str, event_type: str, payload: dict, agent_name: str) -> dict:
+        return {"event_id": "test", "timestamp": "2026-01-01T00:00:00Z"}
+
+    async def get_claim_history(self, claim_id: str) -> dict:
+        return _local_get_claim_history(claim_id)
 
 
 @pytest.fixture(autouse=True)
@@ -27,9 +53,16 @@ def reset_db(monkeypatch):
     monkeypatch.setattr("shared.db.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
     monkeypatch.setattr("crew.appeal_crew.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
     monkeypatch.setattr("mcp_server.tools.audit_log.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
-    monkeypatch.setattr("tools.triage_denial.get_claim_history", lambda claim_id: {"claim_id": claim_id, "prior_appeals": [], "prior_denials": [], "last_payment": None})
+    monkeypatch.setattr("mcp_server.tools.claim_history.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
     monkeypatch.setattr("tools.submit_appeal.get_connection", lambda db_path=TEST_DB_PATH: _get_test_conn())
-    monkeypatch.setattr("tools.submit_appeal.get_payer_appeal_rules", lambda payer_id: {"submission_format": "portal"})
+
+    # Mock MCP client so tests don't require a live MCP server
+    monkeypatch.setattr("crew.appeal_crew.McpClient", _MockMcpClient)
+
+    # Mock guardrail to bypass LLM call in non-LLM tests
+    monkeypatch.setattr("crew.appeal_crew.scan_denial_record", lambda _: InputGuardrailResult(
+        passed=True, checks_run=["pattern_scan", "llm_classifier"], flagged_segments=[], confidence=0.95, reasoning="Mock: passed"
+    ))
 
     init_db(TEST_DB_PATH)
     seed_db(TEST_DB_PATH)
