@@ -94,4 +94,7 @@ Tech spec describes **what** to build. Implementation guides describe **how**.
 - Test your code before declaring done.
 - No sycophantic openers or closing fluff.
 - Keep solutions simple and direct.
+- Big changes: discuss impact first → plan affected code → update specs/docs → then implement.
+- Architecture decisions get recorded with Context, Decision, Rationale.
+- After implementation, check for architecture drift from specs.
 - User instructions always override this file.
