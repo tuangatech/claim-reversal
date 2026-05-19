@@ -107,7 +107,7 @@ async def a2a_task(request: Request):
             )
 
         try:
-            result = graph.invoke(
+            result = await graph.ainvoke(
                 Command(resume={"choice": data["human_choice"]}),
                 config=config,
             )
@@ -151,7 +151,7 @@ async def a2a_task(request: Request):
     }
 
     config = {"configurable": {"thread_id": task_id}}
-    result = graph.invoke(initial_state, config=config)
+    result = await graph.ainvoke(initial_state, config=config)
 
     # Determine if graph completed or suspended at interrupt
     if result.get("evidence_bundle") is not None or result.get("closed_reason") is not None:
@@ -208,3 +208,4 @@ def _build_completed_response(task_id: str, result: dict) -> JSONResponse:
 async def health():
     """Health check."""
     return {"status": "ok", "service": "evidence-agent"}
+

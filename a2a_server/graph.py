@@ -16,9 +16,21 @@ from a2a_server.state import AppealState, EvidenceSufficiency, HumanChoice
 from a2a_server.tools.evaluate_sufficiency import evaluate_evidence_sufficiency
 from a2a_server.tools.fetch_lcd_policy import fetch_lcd_policy
 from a2a_server.tools.fetch_records import fetch_patient_records
-from mcp_server.tools.lookup_guideline import lookup_clinical_guideline
 from shared.db import get_connection
+from shared.mcp_client import McpClient
 from shared.models import ClinicalRecord, EvidenceBundle, GuidelineCitation
+
+# Module-level MCP client — initialized lazily on first use
+_mcp_client: McpClient | None = None
+
+
+async def _get_mcp_client() -> McpClient:
+    """Returns the shared MCP client, connecting on first call."""
+    global _mcp_client
+    if _mcp_client is None:
+        _mcp_client = McpClient()
+        await _mcp_client.connect()
+    return _mcp_client
 
 
 # --- Helpers ---
@@ -50,11 +62,12 @@ def fetch_records(state: AppealState) -> dict:
     return {"patient_records": [r.model_dump() for r in records]}
 
 
-def lookup_guideline(state: AppealState) -> dict:
-    """Looks up clinical guidelines for each diagnosis code."""
+async def lookup_guideline(state: AppealState) -> dict:
+    """Looks up clinical guidelines for each diagnosis code via MCP client."""
+    mcp = await _get_mcp_client()
     citations = []
     for code in state["diagnosis_codes"]:
-        result = lookup_clinical_guideline(code)
+        result = await mcp.lookup_clinical_guideline(code)
         citations.append(result)
     return {"guideline_citations": citations}
 
@@ -193,4 +206,5 @@ builder.add_edge("close_case", END)
 # Compile with in-memory checkpointer for interrupt/resume support
 checkpointer = MemorySaver()
 graph = builder.compile(checkpointer=checkpointer)
+
 

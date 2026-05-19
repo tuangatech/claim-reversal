@@ -3,8 +3,6 @@
 
 from datetime import date, timedelta
 
-from mcp_server.tools.claim_history import get_claim_history
-
 # Clinical denial reason codes per business spec
 CLINICAL_CODES = {
     "CO-50": "Not medically necessary",
@@ -37,6 +35,7 @@ def triage_denial(
     payer_id: str,
     date_of_service: str,
     denial_date: str,
+    claim_history: dict | None = None,
 ) -> dict:
     """Performs all intake logic: classify denial, check deadline, score worthiness."""
 
@@ -85,15 +84,15 @@ def triage_denial(
         score -= 20
         reasoning_parts.append(f"-20 (only {days_remaining} days remaining)")
 
-    # Check prior appeal history for same denial reason
-    history = get_claim_history(claim_id)
-    prior_appeals = history.get("prior_appeals", [])
-    has_prior_rejected = any(
-        a.get("event_type") == "case_closed" for a in prior_appeals
-    )
-    if has_prior_rejected:
-        score -= 15
-        reasoning_parts.append("-15 (prior appeal for same reason was rejected)")
+    # Check prior appeal history for same denial reason (passed in by orchestrator via MCP)
+    if claim_history:
+        prior_appeals = claim_history.get("prior_appeals", [])
+        has_prior_rejected = any(
+            a.get("event_type") == "case_closed" for a in prior_appeals
+        )
+        if has_prior_rejected:
+            score -= 15
+            reasoning_parts.append("-15 (prior appeal for same reason was rejected)")
 
     # Determine recommendation
     if not is_open:
@@ -115,4 +114,5 @@ def triage_denial(
         "recommendation": recommendation,
         "reasoning": "; ".join(reasoning_parts),
     }
+
 

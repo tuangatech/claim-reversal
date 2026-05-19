@@ -9,10 +9,10 @@ import httpx
 import structlog
 from dotenv import load_dotenv
 
-from mcp_server.tools.audit_log import log_appeal_event
-from mcp_server.tools.payer_rules import get_payer_appeal_rules
+from agents.writer_agent import AppealWriterAgent
 from shared.db import get_connection
 from shared.events import WorkflowEvent, WorkflowStep
+from shared.mcp_client import McpClient
 from shared.models import (
     AppealLetter,
     DenialRecord,
@@ -20,12 +20,10 @@ from shared.models import (
     PhysicianReview,
     SubmissionConfirmation,
 )
-from tools.draft_letter import draft_appeal_letter
 from tools.input_guardrail import scan_denial_record
 from tools.physician_review import physician_review
 from tools.submit_appeal import submit_appeal
 from tools.triage_denial import triage_denial
-from tools.validate_letter import validate_appeal_letter
 
 load_dotenv()
 
@@ -46,6 +44,7 @@ class AppealCrew:
             base_url=f"http://localhost:{EVIDENCE_AGENT_PORT}",
             timeout=120.0,
         )
+        self.mcp_client = McpClient()
         self.hitl_event = asyncio.Event()
         self.hitl_choice: str | None = None
         self.a2a_task_id: str | None = None
@@ -60,6 +59,8 @@ class AppealCrew:
         structlog.contextvars.bind_contextvars(claim_id=self.claim_id)
         logger.info("pipeline_started")
         try:
+            await self.mcp_client.connect()
+
             # Step 0: Input guardrail
             guardrail_passed = await self._run_guardrail()
             if not guardrail_passed:
@@ -86,6 +87,7 @@ class AppealCrew:
             logger.error("pipeline_failed", error=str(exc))
             await self._emit(WorkflowStep.ERROR, "error", f"Pipeline failed: {exc}")
         finally:
+            await self.mcp_client.disconnect()
             await self.http_client.aclose()
 
     def resume(self, choice: str) -> None:
@@ -145,7 +147,10 @@ class AppealCrew:
         await self._emit(WorkflowStep.INTAKE_PARSING, "success", f"Parsing denial reason code {eob_data['denial_reason_code']}...")
         await asyncio.sleep(SUBSTEP_DELAY)
 
-        # Run triage (rules-based, no LLM)
+        # Fetch claim history via MCP
+        claim_history = await self.mcp_client.get_claim_history(self.claim_id)
+
+        # Run triage (rules-based, no LLM) — pass MCP data as parameter
         triage_result = await asyncio.to_thread(
             triage_denial,
             claim_id=self.claim_id,
@@ -154,6 +159,7 @@ class AppealCrew:
             payer_id=eob_data["payer_id"],
             date_of_service=eob_data["date_of_service"],
             denial_date=eob_data["denial_date"],
+            claim_history=claim_history,
         )
 
         # Substep: classifying
@@ -166,7 +172,9 @@ class AppealCrew:
         await asyncio.sleep(SUBSTEP_DELAY)
 
         # Substep: history
-        await self._emit(WorkflowStep.INTAKE_HISTORY, "success", "Checking prior appeal history → No prior appeals")
+        prior_count = len(claim_history.get("prior_appeals", []))
+        history_msg = f"Found {prior_count} prior appeal(s)" if prior_count > 0 else "No prior appeals"
+        await self._emit(WorkflowStep.INTAKE_HISTORY, "success", f"Checking prior appeal history → {history_msg}")
         await asyncio.sleep(SUBSTEP_DELAY)
 
         # Substep: scoring
@@ -174,7 +182,7 @@ class AppealCrew:
         await self._emit(WorkflowStep.INTAKE_SCORING, "success", f"Scoring worthiness → {score} ({triage_result['reasoning']})")
         await asyncio.sleep(SUBSTEP_DELAY)
 
-        log_appeal_event(
+        await self.mcp_client.log_appeal_event(
             claim_id=self.claim_id,
             event_type="intake_complete",
             payload=triage_result,
@@ -365,59 +373,39 @@ class AppealCrew:
             return None
 
     async def _run_writer(self) -> AppealLetter:
-        """Drafts the appeal letter using LLM composition."""
+        """Delegates letter writing to the CrewAI Writer Agent (draft→validate→retry loop)."""
         await self._emit(WorkflowStep.DRAFTING_PAYER_RULES, "success", f"Loading payer appeal rules for {self.denial_record.payer_name}...")
         await asyncio.sleep(SUBSTEP_DELAY)
 
-        payer_rules = await asyncio.to_thread(get_payer_appeal_rules, self.denial_record.payer_id)
+        payer_rules = await self.mcp_client.get_payer_appeal_rules(self.denial_record.payer_id)
 
         sections = payer_rules.get("required_sections", [])
         sections_text = ", ".join(sections[:3]) if sections else "standard format"
         await self._emit(WorkflowStep.DRAFTING_RULES_LOADED, "success", f"Required sections: {sections_text}")
         await asyncio.sleep(SUBSTEP_DELAY)
 
-        await self._emit(WorkflowStep.DRAFTING_COMPOSING, "success", "Drafting appeal letter...")
-
-        letter = await asyncio.to_thread(draft_appeal_letter, self.denial_record, self.evidence_bundle, payer_rules)
-
-        # Validate the letter against evidence
-        await self._emit(WorkflowStep.LETTER_VALIDATING, "success", "Validating letter against evidence...")
-        await asyncio.sleep(SUBSTEP_DELAY)
-
-        validation = await asyncio.to_thread(
-            validate_appeal_letter, letter, self.denial_record, self.evidence_bundle, payer_rules
+        # Delegate to CrewAI Writer Agent
+        writer = AppealWriterAgent(
+            denial_record=self.denial_record,
+            evidence_bundle=self.evidence_bundle,
+            payer_rules=payer_rules,
+            event_queue=self.event_queue,
+            claim_id=self.claim_id,
         )
+        letter, validation = await asyncio.to_thread(writer.run_sync)
 
-        if not validation.valid:
-            issues_text = "; ".join(validation.issues[:3]) if validation.issues else "quality below threshold"
-            await self._emit(
-                WorkflowStep.LETTER_VALIDATING, "warning",
-                f"Validation failed (score: {validation.score:.0%}) — redrafting. Issues: {issues_text}",
-            )
-            # One retry with feedback
-            letter = await asyncio.to_thread(
-                draft_appeal_letter, self.denial_record, self.evidence_bundle, payer_rules,
-                validation_feedback=validation.issues,
-            )
-            validation = await asyncio.to_thread(
-                validate_appeal_letter, letter, self.denial_record, self.evidence_bundle, payer_rules
-            )
+        issue_count = len(validation.issues) if validation else 0
+        score = validation.score if validation else 0.0
+        logger.info("step_completed", step="writer", validation_score=score, issues=issue_count)
 
-        issue_count = len(validation.issues)
-        logger.info("step_completed", step="writer", validation_score=validation.score, issues=issue_count)
-        await self._emit(
-            WorkflowStep.LETTER_VALIDATED, "success",
-            f"Letter validated (score: {validation.score:.0%}). {issue_count} issue(s).",
-        )
-
-        log_appeal_event(
+        await self.mcp_client.log_appeal_event(
             claim_id=self.claim_id,
             event_type="letter_drafted",
             payload={
                 "payer_id": self.denial_record.payer_id,
                 "partial_evidence": self.evidence_bundle.partial,
-                "validation_score": validation.score,
-                "validation_issues": validation.issues,
+                "validation_score": score,
+                "validation_issues": validation.issues if validation else [],
             },
             agent_name="appeal_writer_agent",
         )
@@ -459,7 +447,7 @@ class AppealCrew:
             await self._emit(WorkflowStep.PHYSICIAN_CHECKING, "success", "Physician attestation required → No (bypassed)")
             await asyncio.sleep(SUBSTEP_DELAY)
 
-        log_appeal_event(
+        await self.mcp_client.log_appeal_event(
             claim_id=self.claim_id,
             event_type="physician_reviewed",
             payload={"physician_required": review.physician_required, "status": review.review_status},
@@ -484,7 +472,7 @@ class AppealCrew:
         await self._emit(WorkflowStep.SUBMISSION_PREPARING, "success", "Preparing submission package...")
         await asyncio.sleep(SUBSTEP_DELAY)
 
-        payer_rules = await asyncio.to_thread(get_payer_appeal_rules, self.denial_record.payer_id)
+        payer_rules = await self.mcp_client.get_payer_appeal_rules(self.denial_record.payer_id)
         method = payer_rules.get("submission_format", "mail")
         await self._emit(WorkflowStep.SUBMISSION_SENDING, "success", f"Submitting to {self.denial_record.payer_name} via {method}...")
         await asyncio.sleep(SUBSTEP_DELAY * 2)
@@ -494,9 +482,10 @@ class AppealCrew:
             claim_id=self.claim_id,
             payer_id=self.denial_record.payer_id,
             letter_text=self.appeal_letter.letter_text,
+            payer_rules=payer_rules,
         )
 
-        log_appeal_event(
+        await self.mcp_client.log_appeal_event(
             claim_id=self.claim_id,
             event_type="appeal_submitted",
             payload={"confirmation_number": confirmation.confirmation_number, "method": confirmation.submission_method},
@@ -526,3 +515,4 @@ class AppealCrew:
             payload=payload or {},
         )
         await self.event_queue.put(event)
+
