@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -21,16 +22,41 @@ configure_logging("main-app")
 logger = structlog.get_logger()
 
 
+def _suppress_connection_reset(loop, context):
+    """Suppress Windows ProactorEventLoop noise when clients disconnect."""
+    exc = context.get("exception")
+    if isinstance(exc, (ConnectionResetError, ConnectionAbortedError)):
+        return
+    loop.default_exception_handler(context)
+
+
 event_queues: dict[str, asyncio.Queue] = {}
 active_crews: dict[str, AppealCrew] = {}
+background_tasks: dict[str, asyncio.Task] = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialise and seed the database on startup."""
+    """Initialise and seed the database on startup; cancel stray tasks on shutdown."""
     init_db()
     seed_db()
+    if sys.platform == "win32":
+        asyncio.get_event_loop().set_exception_handler(_suppress_connection_reset)
     yield
+    # Shutdown: cancel background pipeline tasks
+    for task in background_tasks.values():
+        task.cancel()
+    for task in background_tasks.values():
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+    background_tasks.clear()
+    active_crews.clear()
+    # Unblock any SSE generators waiting on empty queues
+    for queue in event_queues.values():
+        await queue.put(None)
+    event_queues.clear()
 
 
 app = FastAPI(title="Claim Reversal", lifespan=lifespan)
@@ -67,6 +93,7 @@ async def _run_and_cleanup(claim_id: str, crew: AppealCrew) -> None:
         await crew.run()
     finally:
         active_crews.pop(claim_id, None)
+        background_tasks.pop(claim_id, None)
 
 
 @app.get("/claims")
@@ -120,7 +147,8 @@ async def start_appeal(request: AppealRequest):
     active_crews[request.claim_id] = crew
 
     # Spawn the pipeline as a background task
-    asyncio.create_task(_run_and_cleanup(request.claim_id, crew))
+    task = asyncio.create_task(_run_and_cleanup(request.claim_id, crew))
+    background_tasks[request.claim_id] = task
     logger.info("appeal_started", claim_id=request.claim_id)
     return {"claim_id": request.claim_id, "status": "started"}
 
@@ -140,16 +168,21 @@ async def stream_events(claim_id: str):
             WorkflowStep.ERROR,
         }
 
-        while True:
-            try:
-                event: WorkflowEvent = await asyncio.wait_for(queue.get(), timeout=30.0)
-                data = event.model_dump_json()
-                yield f"event: workflow_step\ndata: {data}\n\n"
-                if event.step in terminal_steps:
-                    break
-            except asyncio.TimeoutError:
-                ts = datetime.now(timezone.utc).isoformat()
-                yield f"event: heartbeat\ndata: {json.dumps({'timestamp': ts})}\n\n"
+        try:
+            while True:
+                try:
+                    event: WorkflowEvent = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    if event is None:
+                        break
+                    data = event.model_dump_json()
+                    yield f"event: workflow_step\ndata: {data}\n\n"
+                    if event.step in terminal_steps:
+                        break
+                except asyncio.TimeoutError:
+                    ts = datetime.now(timezone.utc).isoformat()
+                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': ts})}\n\n"
+        except (ConnectionResetError, ConnectionAbortedError, asyncio.CancelledError):
+            pass
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
