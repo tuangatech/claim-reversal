@@ -122,7 +122,7 @@ class AppealWriterAgent:
             tools=self._build_tools(),
             llm=get_crewai_llm_string(),
             max_iter=6,
-            verbose=True,
+            verbose=False,
         )
 
     def build_task(self, agent: Agent) -> Task:
@@ -155,7 +155,6 @@ class AppealWriterAgent:
         """Builds and runs the CrewAI Crew synchronously. Returns (letter, validation)."""
         agent = self.build_agent()
         task = self.build_task(agent)
-        crew = Crew(agents=[agent], tasks=[task], verbose=True)
+        crew = Crew(agents=[agent], tasks=[task], verbose=False)
         crew.kickoff()
         return self.final_letter, self.final_validation
-
